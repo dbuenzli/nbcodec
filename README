@@ -1,0 +1,27 @@
+nbcodec
+-------
+
+In `src` there are two implementations of a streaming codec for
+simplified ASCII s-expressions.
+
+* `Se.B` implements a (conceptually) blocking codec: for decoding data
+  is pulled from the source and for encoding data is pushed to the
+  destination.
+
+* `Se.Nb` implements a non-blocking codec: for decoding data is pushed
+  to the decoder and for encoding data is pulled from the decoder.
+
+The api documentation can be generated with 
+
+    ./build doc
+
+the result is in `_build/doc/api.docdir/Se.html`. 
+
+In `test` there are a few executables that can be used to test the
+codecs. They can be built with
+
+    ./build tests.otarget
+
+Invoke the utilitites with -help for more information. 
+
+

@@ -1,0 +1,127 @@
+Suppose we want to IO streams of value of `type t`.
+
+For the input (decoding) we have the following interface.  First we
+begin with a type for decoders and a function that creates them,
+usually taking various parameters influencing the decoding process.
+
+    type decoder 
+    val decoder : unit -> decoder
+
+Followed by the following two functions for decoding :
+
+    val decode : decoder -> string -> int -> int -> 
+         [ `Yield of t | `Await | `End | `Error of e ]
+
+    val decoded : decoder -> int
+
+Invoking [decode d s k l] decodes with [d] by reading at most [l]
+bytes from [s] starting at [k]. It returns :
+
+- [`Yield t] if a value [t] was decoded. 
+- [`Await] if the decoding process needs more input. 
+- [`End] if the end of input was reached. 
+- [`Error e] if an error occured. 
+
+Use [decoded d] to get the number of bytes that were actually
+read. End of input must be signaled by the client by calling
+[decode] with [l] = 0, until [`End] is returned. 
+
+Both the encoder and the client should be nice to each other. By which
+I mean:
+
+1. Decoders allow clients to use a single fixed-size input string.
+  
+   This allows the client to repeatedly call [decode] with the string
+   and turn back to Unix.read with the same string when the input is
+   exhausted by the decoder.
+
+   This means that the decoder should always read at least one
+   byte of data per [decode] call. It cannot ask the client
+   for better [k,l] values on [decode] by returning [`Await] 
+   without having consumed data. 
+
+   In other words this means that after a call to [decode], 
+   [decoded] returns [0] iff either :
+
+   - [decode] was called with [l] = 0 or
+   - [decode] returned an [`Error].
+
+   It also means that the decoder cannot use the given client string 
+   anytime after the call to [decode] and must never mutate it.
+
+2. Decoders don't need to bufferize decoded elements. 
+
+   This is enforced by the signature of [decode], the client has no
+   choice but to get the yielded elements as they are returned by the
+   decoder.
+
+(3. Decoders _should_ provide best-effort decoding after errors.
+
+   Decoders should report any decoding errors with [`Error] to allow
+   standard compliant decodings. However at that point they should
+   give the opportunity to the client to continue to perform a best
+   effort decoding. In that case [decode] should always eventually
+   return [`End] even if [`Error]s were reported before.
+
+   (one example is xmlm failing with `Malformed_char_stream. I have
+    seen legacy software produce invalid UTF-{8,16} for funky
+    characters. Rather than fail and block the client at that point
+    it's better to report an error and let it continue if it wishes so
+    by replacing the invalid byte sequence by U+FFFD).)
+ 
+For the output (encoding), we need a type for encoders and a function
+that creates them, again, usually taking various parameters
+influencing the encoding process.
+
+    type encoder
+    val encoder : unit -> encoder
+
+Next come the following two functions for encoding :
+
+    val encode : encoder -> string -> int -> int -> 
+      [ `Yield of t | `End | `Await ] -> [ `Busy | `Done ]
+
+    val encoded : encoder -> int
+
+Invoking [encode e v s k l] encodes [v] with [e] by writing at most
+[l] bytes on [s] starting at [k]. It returns: 
+
+- [`Busy], if [l] was too short to write all the data for [v]. In 
+  that case [encode] must be called again with [`Await] until [`Done]
+  is returned otherwise [Invalid_argument] is raised.
+- [`Done] if the last given element was sucessfully encoded and the 
+  encoder is ready to get the next element.
+
+Use [encoded d] to get the number of bytes that were actually
+written. The end of the encoding process must be signalled by the
+client by calling [encode] with [`End] and possible subsequent
+[`Await]s until [`Done] is returned.
+
+Both the encoder and the client should be nice to each other. By which
+I mean:
+
+1. Encoders allow clients to use a single fixed size output string.
+   
+   This allows the client to repeatedly call [encode] with the string
+   and turn back to Unix.single_write with the same string when the
+   output is exhausted by the encoder. 
+
+   This means that the encoder should always at least write one byte
+   of data per [encode] call. It cannot ask the client for better
+   [k,l] values on [encode] by returning [`Busy] without having
+   written data.
+
+   In other words this means that after a call to [encode], 
+   [encoded] returns [0] iff either :
+
+   - [encode] was called with [`End] and returned [`Done]
+   - [encode] was called with [`Await] after a previous [`End] and
+     returned [`Done].
+
+   It also means that the encoder cannot use the given client string 
+   anytime after the call to [encode].
+
+2. Encoders don't need to bufferize elements to encode. 
+
+   This is enforced by the behaviour of [encode] requiring [`Await]
+   inputs when [`Busy] is returned.
