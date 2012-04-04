@@ -4,22 +4,6 @@
    %%NAME%% release %%VERSION%%
   ---------------------------------------------------------------------------*)
 
-let dec_b s =
-  let rec loop d = match Se.B.decode d with 
-  | `Lexeme l -> loop d 
-  | `End -> `Ok
-  | `Error -> `Error 
-  in
-  loop (Se.B.decoder s)
-
-let dec_nb s =
-  let rec loop d s i l = match Se.Nb.decode d s i l with 
-  | `Lexeme _ | `Await -> loop d s (i + Se.Nb.decoded d) (l - Se.Nb.decoded d)
-  | `End -> `Ok
-  | `Error -> `Error
-  in
-  loop (Se.Nb.decoder ()) s 0 (String.length s)
-
 let string_of_channel i = 
   let mio = 1 lsl 20 in
   let b = Buffer.create mio in 
@@ -31,15 +15,44 @@ let string_of_channel i =
   in 
   loop b s
 
-let trip bsize i o = 
-  let ib = String.create bsize in 
-  let ob = String.create bsize in 
-  let d = Sb.Nb.decoder () in 
-  let e = Sb.Nb.encoder () in 
-  while (true) do 
-    let rc = Unix.read i 0 l in 
-    match Sb.Nb.decode 
-  done;
+let decode_b s =
+  let rec loop d = match Se.B.decode d with 
+  | `Lexeme l -> loop d 
+  | `End -> `Ok
+  | `Error -> `Error 
+  in
+  loop (Se.B.decoder s)
+
+let trip_b src dst = 
+  let d = Se.B.decoder src in 
+  let e = Se.B.encoder dst in 
+  let rec loop d e = match Se.B.decode d with 
+  | `Lexeme _ as l -> Se.B.encode e l; loop d e
+  | `End -> Se.B.encode e `End; `Ok
+  | `Error -> `Error
+  in
+  loop d e
+
+
+
+
+let dec_nb s =
+  let rec loop d s i l = match Se.Nb.decode d s i l with 
+  | `Lexeme _ | `Await -> loop d s (i + Se.Nb.decoded d) (l - Se.Nb.decoded d)
+  | `End -> `Ok
+  | `Error -> `Error
+  in
+  loop (Se.Nb.decoder ()) s 0 (String.length s)
+
+
+let decode blocking str bsize = 
+  let src = if str then `String (string_of_channel stdin) else `Channel stdin in
+  if blocking then decode_b src else failwith "TODO non-blocking"
+  
+let trip blocking str bsize = 
+  let src = if str then `String (string_of_channel stdin) else `Channel stdin in
+  let dst = `Channel stdout in 
+  if blocking then trip_b src dst else failwith "TODO non-blocking"
 
 
 let main () = 
@@ -47,18 +60,28 @@ let main () =
   let log fmt = Printf.kfprintf (fun oc -> flush oc) stderr fmt in
   let exec = Filename.basename Sys.executable_name in
   let usage = 
-    str "Usage: %s <options> file\n\
-         non-blocking recode from stdin and to stdout.\n\
-         Options:" exec 
+    str "Usage: %s <options>\n\
+         recode s-expressions from stdin to stdout.\n\
+         Options:" exec
   in
-  let bsize = ref (1 lsl 20) (* 1Mo *) in 
-  let out = ref true in
+  let decode_only = ref false in
+  let blocking = ref false in
+  let of_string = ref false in
+  let use_unix = ref false in
+  let usize = ref (1 lsl 20) (* 1 Mo *) in 
   let options = [
-    "-bsize", Arg.Set_int blocking, "input and output buffer size in bytes.";
-    "-d", Arg.Clear out, "decode only, no encoding."; ]
+    "-d", Arg.Set decode_only, "decode only, no encoding."; 
+    "-b", Arg.Set blocking, "use blocking decoder.";
+    "-s", Arg.Set of_string, "input a string and decode the string.";
+    "-u", Arg.Set use_unix, "use Unix IO directly (non-blocking only).";
+    "-usize", Arg.Set_int usize, "Unix IO buffer sizes in bytes."; ]
   in
   Arg.parse options (fun _ -> ()) usage;
-  trip bsize Unix.stdin Unix.stdout
+  let r = if !decode_only then decode !blocking !of_string !usize else
+    trip !blocking !of_string !usize
+  in
+  match r with `Error -> log "Decoding error !" | `Ok -> ()
+  
 
 let () = main ()
 

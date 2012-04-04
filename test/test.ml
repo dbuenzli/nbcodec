@@ -5,7 +5,7 @@
   ---------------------------------------------------------------------------*)
 
 let dec_lexemes_b i = 
-  let d = Se.B.decoder i in 
+  let d = Se.B.decoder (`String i) in 
   let rec aux acc d = match Se.B.decode d with 
   | `Error -> `Error 
   | `Lexeme s -> aux (s :: acc) d

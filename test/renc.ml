@@ -25,15 +25,16 @@ let r_se_list md ml ma =
   in
   aux (Random.int (ml + 1) (* in [0;ml] *)) []
 
-let enc_b lexemes = 
-  let b = Buffer.create 255 in
+let enc_b oc lexemes = 
   let rec loop e = function 
-  | [] -> Se.B.encode e `End; Buffer.contents b 
+  | [] -> Se.B.encode e `End
   | l :: ls -> Se.B.encode e (`Lexeme l); loop e ls 
   in
-  loop (Se.B.encoder b) lexemes
+  loop (Se.B.encoder (`Channel oc)) lexemes
 
-let enc_nb lexemes =
+
+let enc_nb oc lexemes = failwith "TODO non-blocking"
+(*
   let b = Buffer.create 255 in 
   let s = String.create 1 in                   (* The fixed output string. *)
   let j = ref 0 in
@@ -52,6 +53,7 @@ let enc_nb lexemes =
   | l :: ls -> encode e (`Lexeme l); loop e ls
   in
   loop (Se.Nb.encoder ()) lexemes
+*)
 
 let main () = 
   let str = Printf.sprintf in
@@ -85,8 +87,7 @@ let main () =
   let se_list = r_se_list !max_depth !max_list_length !max_atom_length in
   let enc = if !blocking then enc_b else enc_nb in
   log "Encoding with %sblocking.\n" (if !blocking then "" else "non-");
-  output_string stdout (enc se_list); 
-  output_char stdout '\n'
+  (enc stdout se_list)
                 
 let () = main ()
 

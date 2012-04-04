@@ -43,8 +43,11 @@ module B : sig
   type decoder
   (** The type for s-expressions decoders. *)
 
-  val decoder : string -> decoder 
-  (** [decoder s] is a decoder that inputs from [s]. *)
+  type src = [ `Channel of in_channel | `String of string ]
+  (** The type for input sources. *)
+
+  val decoder : src -> decoder 
+  (** [decoder src] is a decoder that inputs from [src]. *)
 
   val decode : decoder -> [ `Lexeme of lexeme | `End | `Error ] 
   (** [decode d] is :
@@ -63,7 +66,10 @@ module B : sig
   type encoder
   (** The type for s-expressions encoders. *)
 
-  val encoder : Buffer.t -> encoder 
+  type dst = [ `Channel of out_channel | `Buffer of Buffer.t ]
+  (** The type for output sources. *)
+  
+  val encoder : dst -> encoder 
   (** [encoder b] is an encoder that output to [b]. *)
 
   val encode : encoder -> [ `Lexeme of lexeme | `End ] -> unit

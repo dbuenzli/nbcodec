@@ -23,25 +23,31 @@ module B = struct
 
   (* Decoding *)
 
+  type src = [ `Channel of in_channel | `String of string ]
+
   type decoder =
-    { i : string;                                           (* Input string. *)
-      mutable i_pos : int;                        (* Input current position. *)
-      i_max : int;                                (* Input maximal position. *)
+    { i : unit -> int;                                   (* Character input. *)
       atom : Buffer.t;                                  (* Buffer for atoms. *)
       mutable c : int;                               (* Character lookahead. *)
       mutable nest : int; }                          (* Parenthesis nesting. *)
-      
+
   let decoder src = 
-    { i = src; i_pos = -1; i_max = String.length src - 1; 
-      atom = Buffer.create 255; c = ux_await; nest = 0; }
+    let i = match src with 
+    | `Channel ic -> (fun () -> try input_byte ic with End_of_file -> ux_eoi)
+    | `String s -> 
+        let len = String.length s in 
+        let pos = ref ~-1 in 
+        fun () -> 
+          incr pos; 
+          if !pos = len then ux_eoi else 
+          Char.code (String.unsafe_get s !pos)
+    in
+    { i; atom = Buffer.create 255; c = ux_await; nest = 0; }
 
   let error d = d.nest <- 0 (* reset *); `Error      
   let atom_add d = Buffer.add_char d.atom (Char.chr d.c)
   let atom d = let a = Buffer.contents d.atom in (Buffer.clear d.atom; `A a)
-  let readc d =
-    if d.i_pos = d.i_max then d.c <- ux_eoi else 
-    (d.i_pos <- d.i_pos + 1; d.c <- Char.code (String.unsafe_get d.i d.i_pos))
-      
+  let readc d = d.c <- d.i ()
   let p_white d = while (is_white d.c) do readc d done
   let p_end d = if d.nest = 0 then `End else error d
   let p_ls d = readc d; d.nest <- d.nest + 1; `Lexeme `Ls
@@ -64,25 +70,34 @@ module B = struct
 
   (* Encoding *)
 
+  type dst = [ `Channel of out_channel | `Buffer of Buffer.t ]
+
   type encoder = 
-    { o : Buffer.t;                                        (* Output buffer. *)
+    { outs : string -> int -> int -> unit;                 (* String output. *)
+      outc : char -> unit;                              (* Character output. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
       mutable last_a : bool }          (* [true] if last lexeme was an atom. *) 
 
-  let encoder b = { o = b; nest = 0; last_a = false } 
+  let encoder dst = 
+    let outs, outc = match dst with 
+    | `Channel c -> (output c), (output_char c)
+    | `Buffer b -> (Buffer.add_substring b), (Buffer.add_char b) 
+    in
+    { outs; outc; nest = 0; last_a = false } 
+
   let invalid_seq () = invalid_arg "non well-formed sequence"
   let encode e v = match v with
   | `End -> if e.nest > 0 then invalid_seq () else ()
   | `Lexeme l -> match l with
     | `Le when e.nest = 0 -> invalid_seq ()
-    | `Le -> e.nest <- e.nest - 1; e.last_a <- false; Buffer.add_char e.o ')'
-    | `Ls -> e.nest <- e.nest + 1; e.last_a <- false; Buffer.add_char e.o '('
+    | `Le -> e.nest <- e.nest - 1; e.last_a <- false; e.outc ')'
+    | `Ls -> e.nest <- e.nest + 1; e.last_a <- false; e.outc '('
     | `A a -> 
-        if String.length a = 0 then invalid_arg "empty atom" else
-        begin 
-          if e.last_a then Buffer.add_char e.o ' ';
-          e.last_a <- true; 
-          Buffer.add_string e.o a
+        let al = String.length a in
+        if  al = 0 then invalid_arg "empty atom" else
+        begin
+          if e.last_a then e.outc ' '; 
+          e.last_a <- true; e.outs a 0 al
         end
 end
 
