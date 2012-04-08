@@ -1,127 +1,109 @@
-Suppose we want to IO streams of value of `type t`.
+The design should have the following properties:
 
-For the input (decoding) we have the following interface.  First we
-begin with a type for decoders and a function that creates them,
-usually taking various parameters influencing the decoding process.
+1. Unified interface for blocking and non-blocking mode. 
+2. The existence of the non-blocking mode should not significantly
+   impact blocking mode users.
+3. Input possible from in_channel, string, refillable fixed-size string 
+   buffer (non-blocking mode). 
+4. Output possible to out_channel, Buffer.t, flushable fixed-size string
+   buffer (non-blocking mode).
+5. No third-party IO libraries/paradigms so that the module can adapt
+   to the one the user chooses.
+6. Reasonably efficient.
 
+Suppose we want to IO streams of value of `type t`. For example xmlm's
+signals (lexemes as they should be called) if you are familiar with
+that.
+
+For input (decoding) we begin with a type for input sources, decoders
+and a function to create them.
+
+    type src = [ `Channel of in_channel | `String of string | `Manual ]
     type decoder 
-    val decoder : unit -> decoder
+    val decoder : src -> decoder
 
-Followed by the following two functions for decoding :
+A [`Manual] source means that the client will provide the decoder with
+chunks of bytes to decode at his own pace. The function for decoding
+is :
 
-    val decode : decoder -> string -> int -> int -> 
-         [ `Yield of t | `Await | `End | `Error of e ]
+    val decode : decoder -> [ `Await | `End | `Error of e | `Yield of t ]
 
-    val decoded : decoder -> int
+[decode d] is : 
 
-Invoking [decode d s k l] decodes with [d] by reading at most [l]
-bytes from [s] starting at [k]. It returns :
+- [`Await] iff [d] has a [`Manual] input source and awaits for
+  more input. Use [decode_src] (see below) to provide it.
+- [`Yield v], if a value [v] of type [t] was decoded. 
+- [`End], if the end of input was reached.
+- [`Error e], if an error [e] occured. If you are interested in a
+  best-effort decoding, you can still continue to decode after
+  the error.
 
-- [`Yield t] if a value [t] was decoded. 
-- [`Await] if the decoding process needs more input. 
-- [`End] if the end of input was reached. 
-- [`Error e] if an error occured. 
+For [`Manual] sources the function [decode_src] is used to provide
+the byte chunks to read from : 
 
-Use [decoded d] to get the number of bytes that were actually
-read. End of input must be signaled by the client by calling
-[decode] with [l] = 0, until [`End] is returned. 
+    val decode_src : decoder -> string -> int -> int -> unit
 
-Both the encoder and the client should be nice to each other. By which
-I mean:
+[decode_src d s k l] provides [d] with [l] bytes to read, starting at
+[k] in [s]. This byte range is read by calls to [decode] with [d]
+until `Await is returned. To signal the end of input call the function
+with [l = 0].
 
-1. Decoders allow clients to use a single fixed-size input string.
-  
-   This allows the client to repeatedly call [decode] with the string
-   and turn back to Unix.read with the same string when the input is
-   exhausted by the decoder.
+That's all what is needed for input. Just a note on the `Error
+case. Decoders should report any decoding errors with [`Error] to
+allow standard compliant decodings. However at that point they should
+give the opportunity to the client to continue to perform a best
+effort decoding. In that case [decode] should always eventually return
+[`End] even if [`Error]s were reported before. I think best-effort
+decoding on errors is a good thing: I was annoyed more than once with
+xmlm simply failing with `Malformed_char_stream on files produced by
+legacy software that gave invalid UTF-8 encodings for funky
+characters. Rather than fail and block the client at that point it's
+better to report an error and let it continue if it wishes so by
+replacing the invalid byte sequence with U+FFFD.
 
-   This means that the decoder should always read at least one
-   byte of data per [decode] call. It cannot ask the client
-   for better [k,l] values on [decode] by returning [`Await] 
-   without having consumed data. 
+For output (encoding) we begin with a type for output destinations,
+encoders and a function to create them.
 
-   In other words this means that after a call to [decode], 
-   [decoded] returns [0] iff either :
-
-   - [decode] was called with [l] = 0 or
-   - [decode] returned an [`Error].
-
-   It also means that the decoder cannot use the given client string 
-   anytime after the call to [decode] and must never mutate it.
-
-2. Decoders don't need to bufferize decoded elements. 
-
-   This is enforced by the signature of [decode], the client has no
-   choice but to get the yielded elements as they are returned by the
-   decoder.
-
-(3. Decoders _should_ provide best-effort decoding after errors.
-
-   Decoders should report any decoding errors with [`Error] to allow
-   standard compliant decodings. However at that point they should
-   give the opportunity to the client to continue to perform a best
-   effort decoding. In that case [decode] should always eventually
-   return [`End] even if [`Error]s were reported before.
-
-   (one example is xmlm failing with `Malformed_char_stream. I have
-    seen legacy software produce invalid UTF-{8,16} for funky
-    characters. Rather than fail and block the client at that point
-    it's better to report an error and let it continue if it wishes so
-    by replacing the invalid byte sequence by U+FFFD).)
- 
-For the output (encoding), we need a type for encoders and a function
-that creates them, again, usually taking various parameters
-influencing the encoding process.
-
+    type dst = [ `Channel of out_channel | `Buffer of Buffer.t |  `Manual ]
     type encoder
-    val encoder : unit -> encoder
+    val encoder : dst -> encoder
 
-Next come the following two functions for encoding :
+A [`Manual] destination means that the client will provide to the
+decoder the chunks of bytes to encode to at his own pace. The function
+for encoding is :
 
-    val encode : encoder -> string -> int -> int -> 
-      [ `Yield of t | `End | `Await ] -> [ `Busy | `Done ]
+    val encode : 
+      encoder -> [ `Await | `End | `Yield of t ] -> [ `Ok | `Partial]
 
-    val encoded : encoder -> int
+[encode e v] is 
 
-Invoking [encode e v s k l] encodes [v] with [e] by writing at most
-[l] bytes on [s] starting at [k]. It returns: 
+- [`Partial] iff [e] has a [`Manual] destination and needs more output
+  storage. Use [encode_dst] (see below) to provide it and then call
+  [encode e `Await] until [`Ok] is returned.
+- [`Ok] when the encoder is ready to encode a new [`Yield] or [`End].
 
-- [`Busy], if [l] was too short to write all the data for [v]. In 
-  that case [encode] must be called again with [`Await] until [`Done]
-  is returned otherwise [Invalid_argument] is raised.
-- [`Done] if the last given element was sucessfully encoded and the 
-  encoder is ready to get the next element.
+Raises [Invalid_argument] if a [`Yield] or [`End] is encoded after a 
+[`Partial] encode (this is done to prevent the encoder from having 
+to bufferize [`Yield]s).  
 
-Use [encoded d] to get the number of bytes that were actually
-written. The end of the encoding process must be signalled by the
-client by calling [encode] with [`End] and possible subsequent
-[`Await]s until [`Done] is returned.
+For [`Manual] destinations the function [encode_dst] is used to provide
+the byte chunks to write to : 
 
-Both the encoder and the client should be nice to each other. By which
-I mean:
+    val encode_dst : encoder -> string -> int -> int -> unit
 
-1. Encoders allow clients to use a single fixed size output string.
-   
-   This allows the client to repeatedly call [encode] with the string
-   and turn back to Unix.single_write with the same string when the
-   output is exhausted by the encoder. 
+[encode_dst e s k l] provides [e] with [l] bytes to write, starting at
+[k] in [s]. This byte range is written by calls to [encode] with [e]
+until [`Partial] is returned. To know the remaining number of 
+non-written free bytes in [s] the function [encode_dst_rem] can be
+used:
 
-   This means that the encoder should always at least write one byte
-   of data per [encode] call. It cannot ask the client for better
-   [k,l] values on [encode] by returning [`Busy] without having
-   written data.
+    val encode_dst_rem : encoder -> int
 
-   In other words this means that after a call to [encode], 
-   [encoded] returns [0] iff either :
+[encoder_dst_rem e] is the remaining number of non-written, free bytes
+in the last buffer provided with [encode_dst].
 
-   - [encode] was called with [`End] and returned [`Done]
-   - [encode] was called with [`Await] after a previous [`End] and
-     returned [`Done].
-
-   It also means that the encoder cannot use the given client string 
-   anytime after the call to [encode].
-
-2. Encoders don't need to bufferize elements to encode. 
-
-   This is enforced by the behaviour of [encode] requiring [`Await]
-   inputs when [`Busy] is returned.
+One note on [`Manual] destinations, encoding [`End] always returns
+[`Partial]. The client should then continue as usual with [`Await]
+until [`Ok] is returned at which point [encode_dst_rem e] is
+guaranteed to be [0] (this is a good property for the client's
+loops).

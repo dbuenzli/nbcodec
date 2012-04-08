@@ -1,6 +1,6 @@
 OASISFormat: 0.3
 Name: se
-Version: 0.0.1
+Version: 0.0.2
 Synopsis: non-blocking IO interface design for OCaml
 Authors: Daniel Bünzli <daniel.buenzli at erratique.ch>
 Copyrights: (c) 2012 Daniel C. Bünzli
@@ -13,6 +13,12 @@ BuildTools:ocamlbuild
 Library se
  Path: src
  Modules: Se
+
+Executable setrip
+ Path: test
+ MainIs: setrip.ml
+ BuildDepends: se
+ CompiledObject: best
 
 Document api
  Title: "Se api reference"

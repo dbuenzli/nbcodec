@@ -6,98 +6,125 @@
 
 (* N.B. error reporting is terrible, it's not our focus here. *)
 
+let io_buffer_size = 4096                           (* IO_BUFFER_SIZE 3.12.1 *)
+
 type lexeme = [ `Ls | `Le | `A of string ]
 
 (* Characters and their classes. *)
 
 let ux_eoi = max_int                 (* End of input, outside unicode range. *)
-let ux_await = max_int - 1            (* Await input, outside unicode range. *)
+let ux_soi = max_int - 1           (* Start of input, outside unicode range. *)
 let u_lpar = 0x28                                          (* '(' character. *)
 let u_rpar = 0x29                                          (* ')' character. *)
 let is_white = function 0x20 | 0x09 | 0x0D | 0x0A -> true | _ -> false
 let is_atom_char c = (0x21 <= c && c <= 0x27) || (0x30 <= c && c <= 0x7E)
 
-(* Blocking (conceptually) codec. *)
+(* Blocking codec. *)
  
 module B = struct
 
   (* Decoding *)
 
   type src = [ `Channel of in_channel | `String of string ]
-
   type decoder =
-    { i : unit -> int;                                   (* Character input. *)
+    { mutable src : src;                                    (* Input source. *)
+      mutable i : string;                            (* Current input chunk. *)
+      mutable i_pos : int;                   (* Next input position to read. *)
+      mutable i_max : int;                (* Maximal input position to read. *)
       atom : Buffer.t;                                  (* Buffer for atoms. *)
       mutable c : int;                               (* Character lookahead. *)
       mutable nest : int; }                          (* Parenthesis nesting. *)
-
+      
   let decoder src = 
-    let i = match src with 
-    | `Channel ic -> (fun () -> try input_byte ic with End_of_file -> ux_eoi)
-    | `String s -> 
-        let len = String.length s in 
-        let pos = ref ~-1 in 
-        fun () -> 
-          incr pos; 
-          if !pos = len then ux_eoi else 
-          Char.code (String.unsafe_get s !pos)
+    let i, i_pos, i_max = match src with
+    | `String s -> s, 0, String.length s - 1
+    | `Channel _ -> String.create io_buffer_size, max_int, 0
     in
-    { i; atom = Buffer.create 255; c = ux_await; nest = 0; }
-
-  let error d = d.nest <- 0 (* reset *); `Error      
+    { src; i; i_pos; i_max; atom = Buffer.create 256; c = ux_soi; nest = 0;}
+      
+  let eoi d = d.i <- ""; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+  let refill d = match d.src with 
+  | `String _ -> eoi d
+  | `Channel ic -> 
+      let rc = input ic d.i 0 (String.length d.i) in
+      if rc = 0 then (eoi d) else (d.i_pos <- 0; d.i_max <- rc - 1;)
+      
+  let rec readc d = 
+    if d.i_pos > d.i_max then (if d.c = ux_eoi then () else (refill d; readc d))
+    else begin 
+      d.c <- Char.code (String.unsafe_get d.i d.i_pos);
+      d.i_pos <- d.i_pos + 1;
+    end
+    
   let atom_add d = Buffer.add_char d.atom (Char.chr d.c)
   let atom d = let a = Buffer.contents d.atom in (Buffer.clear d.atom; `A a)
-  let readc d = d.c <- d.i ()
-  let p_white d = while (is_white d.c) do readc d done
-  let p_end d = if d.nest = 0 then `End else error d
-  let p_ls d = readc d; d.nest <- d.nest + 1; `Lexeme `Ls
-  let p_le d = readc d; d.nest <- d.nest - 1;
+  let error d = d.nest <- 0 (* reset *); `Error
+  let r_white d = while (is_white d.c) do readc d done
+  let r_end d = if d.nest = 0 then `End else error d
+  let r_ls d = d.nest <- d.nest + 1; readc d; `Lexeme `Ls
+  let r_le d = d.nest <- d.nest - 1; readc d;
     if (d.nest < 0) then error d else `Lexeme `Le
     
-  let p_atom d = 
+  let r_atom d = 
     while (is_atom_char d.c) do (atom_add d; readc d) done; `Lexeme (atom d)
-
-  let rec p_lexeme d =       
-    if is_white d.c then (p_white d; p_lexeme d) else 
-    if is_atom_char d.c then p_atom d else 
-    if d.c = u_lpar then p_ls d else 
-    if d.c = u_rpar then p_le d else 
-    if d.c = ux_eoi then p_end d else 
-    if d.c = ux_await then (readc d; p_lexeme d) else
+      
+  let rec r_lexeme d =
+    if is_white d.c then (r_white d; r_lexeme d) else 
+    if is_atom_char d.c then r_atom d else 
+    if d.c = u_lpar then r_ls d else 
+    if d.c = u_rpar then r_le d else 
+    if d.c = ux_eoi then r_end d else 
+    if d.c = ux_soi then (readc d; r_lexeme d) else
     `Error
 
-  let decode d = p_lexeme d
+  let decode = r_lexeme
 
   (* Encoding *)
 
   type dst = [ `Channel of out_channel | `Buffer of Buffer.t ]
 
   type encoder = 
-    { outs : string -> int -> int -> unit;                 (* String output. *)
-      outc : char -> unit;                              (* Character output. *)
+    { dst : dst;                                      (* Output destination. *)
+      mutable o : string;                           (* Current output chunk. *)
+      mutable o_pos : int;                 (* Next output position to write. *)
+      mutable o_max : int;              (* Maximal output position to write. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
       mutable last_a : bool }          (* [true] if last lexeme was an atom. *) 
 
   let encoder dst = 
-    let outs, outc = match dst with 
-    | `Channel c -> (output c), (output_char c)
-    | `Buffer b -> (Buffer.add_substring b), (Buffer.add_char b) 
+    let o, o_pos, o_max = match dst with `Buffer _ | `Channel _ -> 
+      String.create io_buffer_size, 0, io_buffer_size - 1
     in
-    { outs; outc; nest = 0; last_a = false } 
+    { dst; o; o_pos; o_max; nest = 0; last_a = false }
+      
+  let flush e = match e.dst with 
+  | `Buffer b -> Buffer.add_substring b e.o 0 e.o_pos; e.o_pos <- 0
+  | `Channel oc -> output oc e.o 0 e.o_pos; e.o_pos <- 0
+      
+  let rec writec e c = 
+    if e.o_pos > e.o_max then (flush e; writec e c) else 
+    (String.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1)
+
+  let rec writes e s j l =
+    let rem = e.o_max - e.o_pos + 1 in 
+    let len = if l > rem then rem else l in 
+    String.unsafe_blit s j e.o e.o_pos len;
+    e.o_pos <- e.o_pos + len; 
+    if len < l then (flush e; writes e s (j + len) (l - len))
 
   let invalid_seq () = invalid_arg "non well-formed sequence"
   let encode e v = match v with
-  | `End -> if e.nest > 0 then invalid_seq () else ()
+  | `End -> if e.nest > 0 then invalid_seq () else flush e
   | `Lexeme l -> match l with
     | `Le when e.nest = 0 -> invalid_seq ()
-    | `Le -> e.nest <- e.nest - 1; e.last_a <- false; e.outc ')'
-    | `Ls -> e.nest <- e.nest + 1; e.last_a <- false; e.outc '('
-    | `A a -> 
+    | `Le -> e.nest <- e.nest - 1; e.last_a <- false; writec e ')'
+    | `Ls -> e.nest <- e.nest + 1; e.last_a <- false; writec e '('
+    | `A a ->
         let al = String.length a in
-        if  al = 0 then invalid_arg "empty atom" else
+        if al = 0 then invalid_arg "empty atom" else
         begin
-          if e.last_a then e.outc ' '; 
-          e.last_a <- true; e.outs a 0 al
+          if e.last_a then writec e ' '; 
+          e.last_a <- true; writes e a 0 al
         end
 end
 
@@ -107,133 +134,138 @@ module Nb = struct
 
   (* Decoding *)
 
+  type src = [ `Channel of Pervasives.in_channel | `String of string | `Manual ]
   type decoder =
-    { mutable i : string;                            (* Current input chunk. *)
-      mutable i_min : int;                        (* Input minimal position. *)
+    { mutable src : src;                                    (* Input source. *)
+      mutable i : string;                            (* Current input chunk. *)
       mutable i_pos : int;                        (* Input current position. *)
       mutable i_max : int;                        (* Input maximal position. *)
-      mutable k :                                   (* Decoder continuation. *)
-        decoder -> [ `Lexeme of lexeme | `Await | `End | `Error ];
       atom : Buffer.t;                                  (* Buffer for atoms. *)
       mutable c : int;                               (* Character lookahead. *)
-      mutable nest : int; }                          (* Parenthesis nesting. *)
+      mutable nest : int;                            (* Parenthesis nesting. *)
+      mutable k :                                   (* Decoder continuation. *)
+        decoder -> [ `Lexeme of lexeme | `Await | `End | `Error ]; }
 
-  let error k d = d.nest <- 0 (* reset *); k d `Error
-  let atom_add d = Buffer.add_char d.atom (Char.chr d.c)
-  let atom d = let a = Buffer.contents d.atom in (Buffer.clear d.atom; `A a)
-  let readc d k =
-    if d.i_max = -1 then (d.c <- ux_eoi; k d) else
-    if d.i_pos = d.i_max then (d.c <- ux_await; d.k <- k; `Await) else
-    begin 
-      d.i_pos <- d.i_pos + 1; 
+  let eoi d = d.i <- ""; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+  let decode_src d s j l =
+    if (j < 0 || l < 0 || j + l > String.length s) then invalid_arg "bounds"; 
+    if (l = 0) then eoi d else 
+    (d.i <- s; d.i_pos <- j; d.i_max <- j + l - 1;)
+
+  let refill k d = match d.src with 
+  | `Manual -> d.k <- k; `Await
+  | `String _ -> eoi d; k d
+  | `Channel ic -> 
+      let rc = input ic d.i 0 (String.length d.i) in
+      decode_src d d.i 0 rc; 
+      k d
+
+  let rec readc k d =
+    if d.i_pos > d.i_max then 
+      (if d.c = ux_eoi then k d else refill (readc k) d)
+    else begin 
       d.c <- Char.code (String.unsafe_get d.i d.i_pos);
+      d.i_pos <- d.i_pos + 1; 
       k d
     end
-  
-  let rec p_white k d = if (is_white d.c) then readc d (p_white k) else k d
-  let p_end k d = if d.nest = 0 then k d `End else error k d
-  let p_ls k d = d.c <- ux_await; d.nest <- d.nest + 1; k d (`Lexeme `Ls)
-  let p_le k d = d.c <- ux_await; d.nest <- d.nest - 1;
-    if (d.nest < 0) then error k d else k d (`Lexeme `Le)
 
-  let rec p_atom k d = 
-    if (is_atom_char d.c) then (atom_add d; readc d (p_atom k)) else
+  let atom_add d = Buffer.add_char d.atom (Char.chr d.c)
+  let atom d = let a = Buffer.contents d.atom in (Buffer.clear d.atom; `A a)
+  let error k d = d.nest <- 0 (* reset *); k d `Error
+  let rec r_white k d = if (is_white d.c) then readc (r_white k) d else k d
+  let r_end k d = if d.nest = 0 then k d `End else error k d
+  let r_ls k d = d.nest <- d.nest + 1; readc (fun d -> k d (`Lexeme `Ls)) d
+  let r_le k d = d.nest <- d.nest - 1; readc (fun d -> 
+    if (d.nest < 0) then error k d else k d (`Lexeme `Le)) d
+
+  let rec r_atom k d = 
+    if (is_atom_char d.c) then (atom_add d; readc (r_atom k) d) else
     k d (`Lexeme (atom d))
-
-  let rec p_lexeme k d =
-    if is_white d.c then (p_white (p_lexeme k) d) else 
-    if is_atom_char d.c then p_atom k d else
-    if d.c = u_lpar then p_ls k d else 
-    if d.c = u_rpar then p_le k d else 
-    if d.c = ux_eoi then p_end k d else 
+      
+  let rec r_lexeme k d =
+    if is_white d.c then (r_white (r_lexeme k) d) else 
+    if is_atom_char d.c then r_atom k d else
+    if d.c = u_lpar then r_ls k d else 
+    if d.c = u_rpar then r_le k d else 
+    if d.c = ux_eoi then r_end k d else 
+    if d.c = ux_soi then (readc (r_lexeme k) d) else
     error k d
 
-  let rec ret d result = d.k <- p_lexeme ret; result
+  let rec ret d result = d.k <- r_lexeme ret; result
+  let decoder src =
+    let i, i_pos, i_max = match src with
+    | `Manual -> "", max_int, 0
+    | `String s -> s, 0, String.length s - 1
+    | `Channel _ -> String.create io_buffer_size, max_int, 0
+    in
+    { i; i_pos; i_max; src; atom = Buffer.create 256; c = ux_soi; nest = 0;
+      k = r_lexeme ret }
+      
+  let decode d = d.k d
 
-  let decoder () = 
-    { i = ""; i_min = 0; i_max = 0; i_pos = -1; k = p_lexeme ret;
-      atom = Buffer.create 255; c = ux_await; nest = 0; }
+  (* Encode *)
 
-  let decode d s j l =
-    d.i <- s;
-    if l = 0 then (d.i_min <- 0; d.i_pos <- -1; d.i_max <- -1) else
-    begin 
-      d.i_min <- j; d.i_pos <- j - 1; d.i_max <- j + l - 1;
-      if j < 0 || l < 0 || d.i_max > String.length s - 1 
-      then invalid_arg "bounds";
-    end;
-    if d.c = ux_await then readc d (fun d -> d.k d) (* why ? *)  else d.k d
-    
-  let decoded d = (d.i_pos - d.i_min) + 1
-
-  (* Encoding. N.B. the continuation passing style could be optimized here,
-     but it's due to the simple nature of the language. *)
-
+  type dst = [ `Channel of out_channel | `Buffer of Buffer.t | `Manual ]
   type encoder = 
-    { mutable o : string;                           (* Current output chunk. *)
-      mutable o_start : int;                       (* Output start position. *)
-      mutable o_pos : int;                       (* Output current position. *)
-      mutable o_rem : int;            (* Remaining output length from o_pos. *)
-      mutable k :                                   (* Encoder continuation. *)
-              encoder -> [ `Await | `End | `Lexeme of lexeme ] -> 
-              [ `Done | `Busy ];
+    { dst : dst;                                      (* Output destination. *)
+      mutable o : string;                           (* Current output chunk. *)
+      mutable o_pos : int;                 (* Next output position to write. *)
+      mutable o_max : int;              (* Maximal output position to write. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
-      mutable last_a : bool; }         (* [true] if last lexeme was an atom. *) 
+      mutable last_a : bool;           (* [true] if last lexeme was an atom. *) 
+      mutable k :                                   (* Decoder continuation. *)
+        encoder -> [ `Await | `End | `Lexeme of lexeme] -> [`Partial | `Ok ] }
+
+  let encode_dst_rem e = e.o_max - e.o_pos + 1
+  let encode_dst e s j l = 
+    if (j < 0 || l < 0 || j + l > String.length s) then invalid_arg "bounds";
+    e.o <- s; e.o_pos <- j; e.o_max <- j + l - 1
+
+  let partial k e = function `Await -> k e 
+  | `Lexeme _ | `End -> invalid_arg "cannot encode now, use `Await first"
+
+  let flush k e = match e.dst with 
+  | `Manual -> e.k <- partial k; `Partial
+  | `Buffer b -> Buffer.add_substring b e.o 0 e.o_pos; e.o_pos <- 0; k e
+  | `Channel oc -> output oc e.o 0 e.o_pos; e.o_pos <- 0; k e
+      
+  let rec writec c k e = 
+    if e.o_pos > e.o_max then flush (writec c k) e else 
+    (String.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1; k e)
+
+  let rec writes s j l k e =
+    let rem = encode_dst_rem e in 
+    let len = if l > rem then rem else l in 
+    String.unsafe_blit s j e.o e.o_pos len;
+    e.o_pos <- e.o_pos + len; 
+    if len < l then (flush (writes s (j + len) (l - len) k) e) else k e
 
   let invalid_seq () = invalid_arg "non well-formed sequence"
-
-  let done_ k e = k e `Done
-  let busy k e = 
-    let resume e = function 
-    | `Await -> k e 
-    | `End | `Lexeme _ -> invalid_arg "encoder is busy"
-    in
-    e.k <- resume; `Busy 
-
-  let rec w_char c k e =
-    if e.o_rem = 0 then busy (w_char c k) e else
-    begin
-      String.unsafe_set e.o e.o_pos c; 
-      e.o_pos <- e.o_pos + 1; e.o_rem <- e.o_rem - 1; k e
-    end
-
-  let rec w_string s j l k e =
-    if l > e.o_rem then
-    begin
-      String.unsafe_blit s j e.o e.o_pos e.o_rem; 
-      e.o_pos <- e.o_pos + e.o_rem; 
-      busy (w_string s (j + e.o_rem) (l - e.o_rem) k) e
-    end else begin
-      String.unsafe_blit s j e.o e.o_pos l; 
-      e.o_pos <- e.o_pos + l; e.o_rem <- e.o_rem - l; k e
-    end
-
-  let w_atom a k e = 
-    let len = String.length a in 
-    if len = 0 then invalid_arg "empty atom" else 
-    (e.last_a <- true; w_string a 0 len (done_ k) e)
-
-  let _encode k e = function
-  | `Await -> invalid_arg "encoder not busy"
-  | `End -> if e.nest > 0 then invalid_seq () else k e `Done
+  let _encode k e v = match v with
+  | `Await -> k e
+  | `End -> if e.nest > 0 then invalid_seq () else flush k e
   | `Lexeme l -> match l with
     | `Le when e.nest = 0 -> invalid_seq ()
-    | `Le -> e.nest <- e.nest - 1; e.last_a <- false; w_char ')' (done_ k) e
-    | `Ls -> e.nest <- e.nest + 1; e.last_a <- false; w_char '(' (done_ k) e
-    | `A a -> if e.last_a then w_char ' ' (w_atom a k) e else w_atom a k e
+    | `Le -> e.nest <- e.nest - 1; e.last_a <- false; writec ')' k e
+    | `Ls -> e.nest <- e.nest + 1; e.last_a <- false; writec '(' k e
+    | `A a ->
+        let al = String.length a in
+        if al = 0 then invalid_arg "empty atom" else
+        begin
+          let w_atom e = e.last_a <- true; writes a 0 al k e in 
+          if e.last_a then writec ' ' w_atom e else w_atom e
+        end
 
-  let rec ret e result = e.k <- _encode ret; result
+  let rec ret e = e.k <- _encode ret; `Ok 
+  let encoder dst = 
+    let o, o_pos, o_max = match dst with
+    | `Manual -> "", 1, 0
+    | `Buffer _ | `Channel _ -> 
+        String.create io_buffer_size, 0, io_buffer_size - 1
+    in
+    { dst; o; o_pos; o_max; nest = 0; last_a = false; k = _encode ret }
 
-  let encoder () = 
-    { o = ""; o_start = 0; o_pos = 0; o_rem = 0; k = _encode ret; 
-      nest = 0; last_a = false }
-
-  let encode e v s j l = 
-    if (j < 0 || l < 0 || j + l > String.length s) then invalid_arg "bounds"; 
-    e.o <- s; e.o_start <- j; e.o_pos <- j; e.o_rem <- l; 
-    e.k e v 
-    
-  let encoded e = (e.o_pos - e.o_start)
+  let encode e v = e.k e v
 end
 
 (*---------------------------------------------------------------------------

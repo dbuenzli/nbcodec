@@ -1,3 +1,9 @@
+(*---------------------------------------------------------------------------
+   Copyright %%COPYRIGHT%%. All rights reserved.
+   Distributed under the BSD3 license, see license at the end of the file.
+   %%NAME%% release %%VERSION%%
+  ---------------------------------------------------------------------------*)
+
 (** Blocking and non-blocking streaming codecs for simplified s-expressions. 
 
     We want to encode and decode the following simple s-expression grammar
@@ -35,16 +41,16 @@ sexp = `A a / `Ls *sexp `Le
 
 (** {1 Codecs} *)
 
-(** Blocking streaming co/dec (push/pull). *)
+(** Blocking streaming codec. *)
 module B : sig
 
   (** {1 Decoding} *)
 
-  type decoder
-  (** The type for s-expressions decoders. *)
-
   type src = [ `Channel of in_channel | `String of string ]
   (** The type for input sources. *)
+
+  type decoder
+  (** The type for s-expressions decoders. *)
 
   val decoder : src -> decoder 
   (** [decoder src] is a decoder that inputs from [src]. *)
@@ -63,14 +69,14 @@ module B : sig
 
   (** {1 Encoding} *)
 
+  type dst = [ `Channel of out_channel | `Buffer of Buffer.t ]
+  (** The type for output destinations. *)
+
   type encoder
   (** The type for s-expressions encoders. *)
-
-  type dst = [ `Channel of out_channel | `Buffer of Buffer.t ]
-  (** The type for output sources. *)
   
   val encoder : dst -> encoder 
-  (** [encoder b] is an encoder that output to [b]. *)
+  (** [encoder dst] is an encoder that outputs to [dst]. *)
 
   val encode : encoder -> [ `Lexeme of lexeme | `End ] -> unit
   (** [encode e v] encodes [v] on [e].
@@ -79,67 +85,115 @@ module B : sig
       of lexemes is encoded. *)
 end
 
-(** Non-blocking streaming co/dec (pull/push). *)
+(** Non-blocking streaming codec. *)
 module Nb : sig
 
   (** {1 Decoding} *)
 
+  type src = [ `Channel of in_channel | `String of string | `Manual ]
+  (** The type for input sources. *)
+
   type decoder
   (** The type for s-expressions decoders. *)
   
-  val decoder : unit -> decoder 
-  (** [decoder ()] is a decoder. *)
+  val decoder : src -> decoder 
+  (** [decoder src] is a decoder that inputs from src. *)
 
-  val decode : decoder -> string -> int -> int -> 
-    [ `Lexeme of lexeme | `Await | `End | `Error ]
-  (** [decode d s k l] decodes with [d] by reading [l] bytes from [s] starting
-      at [k]. It returns :
+  val decode : decoder -> [ `Lexeme of lexeme | `Await | `End | `Error ]
+  (** [decode d] is:
       {ul
+      {- [`Await] iff [d] has a [`Manual] input source and awaits
+         for more input. Use {!decode_src} to provide it.}
       {- [`Lexeme l], if a lexeme [l] was decoded.}
-      {- [`Await] if the decoding process needs more input.}
       {- [`End], if the end of input was reached.}
       {- [`Error], if an error occured. If you are interested in 
          a best-effort decoding you can still continue to decode
          after an error.}}
-      Use {!decoded} to get the number of bytes that were actually 
-      read. End of input must be signaled by calling {!decode} with [l = 0], 
-      until [`End] is returned. 
 
       {b Note.} Repeated invocation always eventually returns [`End], even in 
       case of errors. *)
 
-  val decoded : decoder -> int 
-  (** [decoded d] is the number of bytes read by the last call to {!decoded}. *)
+  val decode_src : decoder -> string -> int -> int -> unit
+  (** [decode_src d s k l] provides [d] with [l] bytes to read,
+      starting at [k] in [s]. This byte range is read by calls to {!decode}
+      with [d] until [`Await] is returned. To signal the end of input
+      call the function with [l = 0].
+      
+      {b Warning.} Do not use with non-[`Manual] decoder sources. *)
 
   (** {1 Encoding} *)
+
+  type dst = [ `Channel of out_channel | `Buffer of Buffer.t | `Manual ]
+  (** The type for output destinations. *)
 
   type encoder 
   (** The type for s-expression encoders. *)
 
-  val encoder : unit -> encoder
-  (** [encoder ()] is an encoder for s-expressions. *)
+  val encoder : dst -> encoder
+  (** [encoder dst] is an encoder that outputs to [dst]. *)
   
-  val encode : encoder -> [ `Lexeme of lexeme | `End | `Await] -> 
-    string -> int -> int -> [ `Busy | `Done ]
-  (** [encode e v s k l] encodes [v] with [e] by writing at most 
-      [l] bytes on [s] starting at [k]. It returns: 
+  val encode : encoder -> [ `Await | `Lexeme of lexeme | `End ] -> 
+    [ `Ok | `Partial ]
+  (** [encode e v] is :
       {ul
-      {- [`Busy], if [l] was too short to write all the data for [v]. In 
-         that case [encode] must be called again with [`Await] until [`Done]
-         is returned.}
-      {- [`Done] if the last given element was sucessfully encoded and the 
-         encoder is ready to get the next element.}}
+      {- [`Partial] iff [e] has a [`Manual] destination and needs
+          more output storage. Use {!encode_dst} to provide a new buffer
+          and then call {!encode} with [`Await] until [`Ok] is returned.}
+      {- [`Ok] when the encoder is ready to encode a new [`Lexeme] or [`End].}}
 
-      Use {!encoded} to get the number of bytes that were actually written.
-      The end of the encoding process must be signalled by the client
-      by calling [encode] with [`End] and possible subsequent [`Await]s
-      until [`Done] is returned. 
-
+      For [`Manual] destinations, encoding [`End] always returns
+      [`Partial], continue with [`Await] until [`Ok] is
+      returned at which point [encode_dst_rem e] is guaranteed to be
+      [0].
+      
       {b Raises.} [Invalid_argument] if a non well-formed sequence
-      of lexemes is encoded or if a [`Lexeme] or [`End] is given
-      while the encoder is [`Busy]. *)
+      of lexemes is encoded or if a [`Lexeme] or [`End] is encoded after
+      a [`Partial] encode. *)
 
-  val encoded : encoder -> int
-  (** [encoded d] is the number of bytes written by the last call to 
-      {!encode}. *)
+  val encode_dst : encoder -> string -> int -> int -> unit 
+  (** [encode_dst e s k l] provides [e] with [l] bytes to write,
+      starting at [k] in [s]. This byte range is written by calls
+      to {!encoder} with [e] until [`Partial] is returned. 
+      Use {!encode_dst_rem} to know the remaining number of non-written 
+      free bytes in [s].
+
+      {b Warning.} Do not use with non-[`Manual] encoder destinations.
+  *)
+      
+  val encode_dst_rem : encoder -> int
+  (** [encode_dst_rem e] is the remaining number of non-written,
+      free bytes in the last buffer provided with {!encode_dst}. *)
 end
+
+(*---------------------------------------------------------------------------
+   Copyright %%COPYRIGHT%%
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions
+   are met:
+     
+   1. Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+
+   2. Redistributions in binary form must reproduce the above
+      copyright notice, this list of conditions and the following
+      disclaimer in the documentation and/or other materials provided
+      with the distribution.
+
+   3. Neither the name of Daniel C. Bünzli nor the names of
+      contributors may be used to endorse or promote products derived
+      from this software without specific prior written permission.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  ---------------------------------------------------------------------------*)

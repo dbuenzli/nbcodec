@@ -4,30 +4,28 @@
    %%NAME%% release %%VERSION%%
   ---------------------------------------------------------------------------*)
 
-let dec_lexemes_b i = 
-  let d = Se.B.decoder (`String i) in 
-  let rec aux acc d = match Se.B.decode d with 
-  | `Error -> `Error 
-  | `Lexeme s -> aux (s :: acc) d
+let lexemes_b i = 
+  let rec loop acc d = match Se.B.decode d with 
+  | `Lexeme s -> loop (s :: acc) d
   | `End -> `Lexemes (List.rev acc)
+  | `Error -> `Error 
   in
-  aux [] d
+  loop [] (Se.B.decoder (`String i))
     
-let dec_lexemes_nb blen i = 
-  let d = Se.Nb.decoder () in 
-  let rec aux acc d i k blen ilen = 
-    let blen = if (k + blen) > ilen then ilen - k else blen in
-    match Se.Nb.decode d i k blen with 
-    | `Error -> `Error
-    | `Await -> aux acc d i (k + Se.Nb.decoded d) blen ilen
-    | `Lexeme s -> aux (s :: acc) d i (k + Se.Nb.decoded d) blen ilen
-    | `End -> `Lexemes (List.rev acc)
+let lexemes_nb blen i =
+  let rec loop acc d i k blen ilen = match Se.Nb.decode d with
+  | `Lexeme s -> loop (s :: acc) d i k blen ilen
+  | `Error -> `Error
+  | `End -> `Lexemes (List.rev acc)
+  | `Await ->
+      let blen' = if k + blen > ilen then ilen - k else blen in
+      Se.Nb.decode_src d i k blen'; loop acc d i (k + blen') blen' ilen
   in
-  aux [] d i 0 blen (String.length i)
+  loop [] (Se.Nb.decoder `Manual) i 0 blen (String.length i)
 
-let dec_test get_signals = 
-  let ss src l = assert (get_signals src = `Lexemes l) in
-  let err src = assert (get_signals src = `Error) in 
+let decode_test lexemes =
+  let ss src l = assert (lexemes src = `Lexemes l) in
+  let err src = assert (lexemes src = `Error) in 
   ss "  " []; 
   ss " ( ) " [ `Ls ; `Le]; 
   ss "h(e(hey))" [ `A "h"; `Ls ; `A "e"; `Ls; `A "hey"; `Le; `Le ];
@@ -39,13 +37,15 @@ let () =
   if !Sys.interactive then () else
   begin 
     print_endline "Testing blocking decoder.";
-    dec_test dec_lexemes_b; 
+    decode_test lexemes_b; 
     print_endline "Testing non-blocking decoder.";
-    dec_test (dec_lexemes_nb 1);
+    decode_test (lexemes_nb 1);
     print_endline "Testing non-blocking decoder.";
-    dec_test (dec_lexemes_nb 2);
+    decode_test (lexemes_nb 2);
     print_endline "Testing non-blocking decoder.";
-    dec_test (dec_lexemes_nb 20);
+    decode_test (lexemes_nb 3);
+    print_endline "Testing non-blocking decoder.";
+    decode_test (lexemes_nb 20);
   end
 
 (*---------------------------------------------------------------------------

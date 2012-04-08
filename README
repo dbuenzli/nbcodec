@@ -1,15 +1,11 @@
 nbcodec
 -------
 
-In `src` there are two implementations of a streaming codec for
+In `src/se.ml` there are two implementations of a streaming codec for
 simplified ASCII s-expressions.
 
-* `Se.B` implements a (conceptually) blocking codec: for decoding data
-  is pulled from the source and for encoding data is pushed to the
-  destination.
-
-* `Se.Nb` implements a non-blocking codec: for decoding data is pushed
-  to the decoder and for encoding data is pulled from the decoder.
+* `Se.B` implements a blocking codec.
+* `Se.Nb` implements a non-blocking codec.
 
 The api documentation can be generated with 
 
@@ -17,11 +13,16 @@ The api documentation can be generated with
 
 the result is in `_build/doc/api.docdir/Se.html`. 
 
-In `test` there are a few executables that can be used to test the
-codecs. They can be built with
+The executable `setrip.native` can be used to test and benchmark the codecs, 
+the source is `test/setrip.ml` it can be built with :
 
-    ./build tests.otarget
+    ./build setrip.native
 
-Invoke the utilitites with -help for more information. 
+For example : 
+
+  ./setrip.native -enc -rseed 1067894368 > 1067894368.sexp 
+
+will generate a 32 Mo file of random s-expressions with the non-blocking
+codec. Use `setrip.native -help` for more information.
 
 
