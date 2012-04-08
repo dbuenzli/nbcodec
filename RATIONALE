@@ -100,10 +100,12 @@ used:
     val encode_dst_rem : encoder -> int
 
 [encoder_dst_rem e] is the remaining number of non-written, free bytes
-in the last buffer provided with [encode_dst].
+in the last buffer provided with [encode_dst]. A well-behaved encoder
+should always fill all the bytes it is given, except for the buffer
+that encodes the `End.
 
 One note on [`Manual] destinations, encoding [`End] always returns
 [`Partial]. The client should then continue as usual with [`Await]
 until [`Ok] is returned at which point [encode_dst_rem e] is
-guaranteed to be [0] (this is a good property for the client's
-loops).
+guaranteed to be the size of the last provided buffer (i.e. nothing
+was written, this is a good property for the client's loops).

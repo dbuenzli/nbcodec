@@ -144,7 +144,7 @@ module Nb : sig
       For [`Manual] destinations, encoding [`End] always returns
       [`Partial], continue with [`Await] until [`Ok] is
       returned at which point [encode_dst_rem e] is guaranteed to be
-      [0].
+      the size of the last provided buffer (i.e. nothing was written).
       
       {b Raises.} [Invalid_argument] if a non well-formed sequence
       of lexemes is encoded or if a [`Lexeme] or [`End] is encoded after
