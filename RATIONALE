@@ -78,7 +78,7 @@ for encoding is :
 [encode e v] is 
 
 - [`Partial] iff [e] has a [`Manual] destination and needs more output
-  storage. the client must use [encode_dst] (see below) to provide it and 
+  storage. The client must use [encode_dst] (see below) to provide it and 
   then call [encode e `Await] until [`Ok] is returned.
 - [`Ok] when the encoder is ready to encode a new [`Yield] or [`End].
 
@@ -105,7 +105,8 @@ should always fill all the bytes it is given, except for the buffer
 that encodes the `End.
 
 One note on [`Manual] destinations, encoding [`End] always returns
-[`Partial]. The client should then continue as usual with [`Await]
-until [`Ok] is returned at which point [encode_dst_rem e] is
-guaranteed to be the size of the last provided buffer (i.e. nothing
-was written, this is a good property for the client's loops).
+[`Partial]. The client should then as usual use [encode_dst] and
+continue with [`Await] until [`Ok] is returned at which point
+[encode_dst_rem e] is guaranteed to be the size of the last provided
+buffer (i.e. nothing was written, this is a good property for the
+client's loops).
