@@ -31,7 +31,7 @@ is :
 [decode d] is : 
 
 - [`Await] iff [d] has a [`Manual] input source and awaits for
-  more input. Use [decode_src] (see below) to provide it.
+  more input. The client must use [decode_src] (see below) to provide it.
 - [`Yield v], if a value [v] of type [t] was decoded. 
 - [`End], if the end of input was reached.
 - [`Error e], if an error [e] occured. If you are interested in a
@@ -78,8 +78,8 @@ for encoding is :
 [encode e v] is 
 
 - [`Partial] iff [e] has a [`Manual] destination and needs more output
-  storage. Use [encode_dst] (see below) to provide it and then call
-  [encode e `Await] until [`Ok] is returned.
+  storage. the client must use [encode_dst] (see below) to provide it and 
+  then call [encode e `Await] until [`Ok] is returned.
 - [`Ok] when the encoder is ready to encode a new [`Yield] or [`End].
 
 Raises [Invalid_argument] if a [`Yield] or [`End] is encoded after a 

@@ -103,7 +103,7 @@ module Nb : sig
   (** [decode d] is:
       {ul
       {- [`Await] iff [d] has a [`Manual] input source and awaits
-         for more input. Use {!decode_src} to provide it.}
+         for more input. The client must use {!decode_src} to provide it.}
       {- [`Lexeme l], if a lexeme [l] was decoded.}
       {- [`End], if the end of input was reached.}
       {- [`Error], if an error occured. If you are interested in 
@@ -137,8 +137,9 @@ module Nb : sig
   (** [encode e v] is :
       {ul
       {- [`Partial] iff [e] has a [`Manual] destination and needs
-          more output storage. Use {!encode_dst} to provide a new buffer
-          and then call {!encode} with [`Await] until [`Ok] is returned.}
+          more output storage. The client must use {!encode_dst} to provide 
+          a new buffer and then call {!encode} with [`Await] until [`Ok] 
+          is returned.}
       {- [`Ok] when the encoder is ready to encode a new [`Lexeme] or [`End].}}
 
       For [`Manual] destinations, encoding [`End] always returns
