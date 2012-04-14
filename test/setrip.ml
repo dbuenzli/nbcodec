@@ -68,7 +68,7 @@ let decode_nb_unix usize fd =
   | `Error -> `Error 
   | `Await -> 
       let rc = unix_read fd buf 0 (String.length buf) in 
-      Se.Nb.decode_src d buf 0 rc; loop d fd buf
+      Se.Nb.Manual.src d buf 0 rc; loop d fd buf
   in
   loop (Se.Nb.decoder `Manual) fd (String.create usize)
 
@@ -107,14 +107,14 @@ let encode_nb dst =
 
 let rec encode_unix fd e eb v = match Se.Nb.encode e v with `Ok -> () 
 | `Partial ->
-    unix_really_write fd eb 0 (String.length eb - Se.Nb.encode_dst_rem e); 
-    Se.Nb.encode_dst e eb 0 (String.length eb); 
+    unix_really_write fd eb 0 (String.length eb - Se.Nb.Manual.dst_rem e); 
+    Se.Nb.Manual.dst e eb 0 (String.length eb); 
     encode_unix fd e eb `Await
 
 let encode_nb_unix usize fd = 
   let e = Se.Nb.encoder `Manual in 
   let eb = String.create usize in
-  Se.Nb.encode_dst e eb 0 (String.length eb);
+  Se.Nb.Manual.dst e eb 0 (String.length eb);
   encode_unix fd e eb
 
 type encode_f = [ `Lexeme of Se.lexeme | `End] -> unit
@@ -156,11 +156,11 @@ let trip_nb_unix usize fdi fdo =
   | `Error -> `Error 
   | `Await -> 
       let rc = unix_read fdi db 0 (String.length db) in 
-      Se.Nb.decode_src d db 0 rc; loop fdi fdo d db e eb
+      Se.Nb.Manual.src d db 0 rc; loop fdi fdo d db e eb
   in
   let d, db = Se.Nb.decoder `Manual, String.create usize in
   let e, eb = Se.Nb.encoder `Manual, String.create usize in 
-  Se.Nb.encode_dst e eb 0 (String.length eb); 
+  Se.Nb.Manual.dst e eb 0 (String.length eb); 
   loop fdi fdo d db e eb
 
 let trip blocking sin sout use_unix usize = 

@@ -103,7 +103,7 @@ module Nb : sig
   (** [decode d] is:
       {ul
       {- [`Await] iff [d] has a [`Manual] input source and awaits
-         for more input. The client must use {!decode_src} to provide it.}
+         for more input. The client must use {!Manual.src} to provide it.}
       {- [`Lexeme l], if a lexeme [l] was decoded.}
       {- [`End], if the end of input was reached.}
       {- [`Error], if an error occured. If you are interested in 
@@ -112,14 +112,6 @@ module Nb : sig
 
       {b Note.} Repeated invocation always eventually returns [`End], even in 
       case of errors. *)
-
-  val decode_src : decoder -> string -> int -> int -> unit
-  (** [decode_src d s k l] provides [d] with [l] bytes to read,
-      starting at [k] in [s]. This byte range is read by calls to {!decode}
-      with [d] until [`Await] is returned. To signal the end of input
-      call the function with [l = 0].
-      
-      {b Warning.} Do not use with non-[`Manual] decoder sources. *)
 
   (** {1 Encoding} *)
 
@@ -137,33 +129,47 @@ module Nb : sig
   (** [encode e v] is :
       {ul
       {- [`Partial] iff [e] has a [`Manual] destination and needs
-          more output storage. The client must use {!encode_dst} to provide 
+          more output storage. The client must use {!Manual.dst} to provide 
           a new buffer and then call {!encode} with [`Await] until [`Ok] 
           is returned.}
       {- [`Ok] when the encoder is ready to encode a new [`Lexeme] or [`End].}}
 
       For [`Manual] destinations, encoding [`End] always returns
       [`Partial], continue with [`Await] until [`Ok] is
-      returned at which point [encode_dst_rem e] is guaranteed to be
+      returned at which point [Manual.dst_rem e] is guaranteed to be
       the size of the last provided buffer (i.e. nothing was written).
       
       {b Raises.} [Invalid_argument] if a non well-formed sequence
       of lexemes is encoded or if a [`Lexeme] or [`End] is encoded after
       a [`Partial] encode. *)
 
-  val encode_dst : encoder -> string -> int -> int -> unit 
-  (** [encode_dst e s k l] provides [e] with [l] bytes to write,
-      starting at [k] in [s]. This byte range is written by calls
-      to {!encoder} with [e] until [`Partial] is returned. 
-      Use {!encode_dst_rem} to know the remaining number of non-written 
-      free bytes in [s].
+ (** {1 Manual sources and destinations} *)
 
-      {b Warning.} Do not use with non-[`Manual] encoder destinations.
-  *)
+  (** Manual sources and destinations. *)
+  module Manual : sig
+
+    val src : decoder -> string -> int -> int -> unit
+    (** [src d s k l] provides [d] with [l] bytes to read,
+        starting at [k] in [s]. This byte range is read by calls to {!decode}
+        with [d] until [`Await] is returned. To signal the end of input
+        call the function with [l = 0].
+        
+        {b Warning.} Do not use with non-[`Manual] decoder sources. *)
+
+    val dst : encoder -> string -> int -> int -> unit 
+    (** [dst e s k l] provides [e] with [l] bytes to write,
+        starting at [k] in [s]. This byte range is written by calls
+        to {!encoder} with [e] until [`Partial] is returned. 
+        Use {!dst_rem} to know the remaining number of non-written 
+        free bytes in [s].
+        
+        {b Warning.} Do not use with non-[`Manual] encoder destinations.
+    *)
       
-  val encode_dst_rem : encoder -> int
-  (** [encode_dst_rem e] is the remaining number of non-written,
-      free bytes in the last buffer provided with {!encode_dst}. *)
+    val dst_rem : encoder -> int
+    (** [dst_rem e] is the remaining number of non-written,
+        free bytes in the last buffer provided with {!dst}. *)
+  end
 end
 
 (*---------------------------------------------------------------------------

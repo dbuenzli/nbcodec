@@ -266,6 +266,12 @@ module Nb = struct
     { dst; o; o_pos; o_max; nest = 0; last_a = false; k = _encode ret }
 
   let encode e v = e.k e v
+
+  module Manual = struct
+    let src = decode_src
+    let dst = encode_dst
+    let dst_rem = encode_dst_rem
+  end
 end
 
 (*---------------------------------------------------------------------------

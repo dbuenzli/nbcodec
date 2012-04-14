@@ -19,7 +19,7 @@ let lexemes_nb blen i =
   | `End -> `Lexemes (List.rev acc)
   | `Await ->
       let blen' = if k + blen > ilen then ilen - k else blen in
-      Se.Nb.decode_src d i k blen'; loop acc d i (k + blen') blen' ilen
+      Se.Nb.Manual.src d i k blen'; loop acc d i (k + blen') blen' ilen
   in
   loop [] (Se.Nb.decoder `Manual) i 0 blen (String.length i)
 
