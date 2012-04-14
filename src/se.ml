@@ -27,7 +27,7 @@ module B = struct
 
   type src = [ `Channel of in_channel | `String of string ]
   type decoder =
-    { mutable src : src;                                    (* Input source. *)
+    { src : src;                                           (* Input source. *)
       mutable i : string;                            (* Current input chunk. *)
       mutable i_pos : int;                   (* Next input position to read. *)
       mutable i_max : int;                (* Maximal input position to read. *)
@@ -136,7 +136,7 @@ module Nb = struct
 
   type src = [ `Channel of Pervasives.in_channel | `String of string | `Manual ]
   type decoder =
-    { mutable src : src;                                    (* Input source. *)
+    { src : src;                                            (* Input source. *)
       mutable i : string;                            (* Current input chunk. *)
       mutable i_pos : int;                        (* Input current position. *)
       mutable i_max : int;                        (* Input maximal position. *)
