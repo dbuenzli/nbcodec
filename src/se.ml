@@ -212,8 +212,8 @@ module Nb = struct
       mutable o_pos : int;                 (* Next output position to write. *)
       mutable o_max : int;              (* Maximal output position to write. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
-      mutable last_a : bool;           (* [true] if last lexeme was an atom. *) 
-      mutable k :                                   (* Decoder continuation. *)
+      mutable last_a : bool;           (* [true] if last lexeme was an atom. *)
+      mutable k :                                   (* Encoder continuation. *)
         encoder -> [ `Await | `End | `Lexeme of lexeme] -> [`Partial | `Ok ] }
 
   let encode_dst_rem e = e.o_max - e.o_pos + 1
