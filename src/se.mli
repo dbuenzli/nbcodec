@@ -52,7 +52,7 @@ module B : sig
   type decoder
   (** The type for s-expressions decoders. *)
 
-  val decoder : src -> decoder 
+  val decoder : [< src] -> decoder 
   (** [decoder src] is a decoder that inputs from [src]. *)
 
   val decode : decoder -> [ `Lexeme of lexeme | `End | `Error ] 
@@ -75,10 +75,10 @@ module B : sig
   type encoder
   (** The type for s-expressions encoders. *)
   
-  val encoder : dst -> encoder 
+  val encoder : [< dst] -> encoder 
   (** [encoder dst] is an encoder that outputs to [dst]. *)
 
-  val encode : encoder -> [ `Lexeme of lexeme | `End ] -> unit
+  val encode : encoder -> [< `Lexeme of lexeme | `End ] -> unit
   (** [encode e v] encodes [v] on [e].
 
       {b Raises.} [Invalid_argument] if a non well-formed sequence
@@ -96,7 +96,7 @@ module Nb : sig
   type decoder
   (** The type for s-expressions decoders. *)
   
-  val decoder : src -> decoder 
+  val decoder : [< src] -> decoder 
   (** [decoder src] is a decoder that inputs from src. *)
 
   val decode : decoder -> [ `Lexeme of lexeme | `Await | `End | `Error ]
@@ -121,10 +121,10 @@ module Nb : sig
   type encoder 
   (** The type for s-expression encoders. *)
 
-  val encoder : dst -> encoder
+  val encoder : [< dst] -> encoder
   (** [encoder dst] is an encoder that outputs to [dst]. *)
   
-  val encode : encoder -> [ `Await | `Lexeme of lexeme | `End ] -> 
+  val encode : encoder -> [< `Await | `Lexeme of lexeme | `End ] -> 
     [ `Ok | `Partial ]
   (** [encode e v] is :
       {ul

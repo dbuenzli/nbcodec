@@ -40,7 +40,8 @@ module B = struct
     | `String s -> s, 0, String.length s - 1
     | `Channel _ -> String.create io_buffer_size, max_int, 0
     in
-    { src; i; i_pos; i_max; atom = Buffer.create 256; c = ux_soi; nest = 0;}
+    { src = (src :> src); i; i_pos; i_max; atom = Buffer.create 256; 
+      c = ux_soi; nest = 0;}
       
   let eoi d = d.i <- ""; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
   let refill d = match d.src with 
@@ -95,7 +96,7 @@ module B = struct
     let o, o_pos, o_max = match dst with `Buffer _ | `Channel _ -> 
       String.create io_buffer_size, 0, io_buffer_size - 1
     in
-    { dst; o; o_pos; o_max; nest = 0; last_a = false }
+    { dst = (dst :> dst); o; o_pos; o_max; nest = 0; last_a = false }
       
   let flush e = match e.dst with 
   | `Buffer b -> Buffer.add_substring b e.o 0 e.o_pos; e.o_pos <- 0
@@ -198,14 +199,15 @@ module Nb = struct
     | `String s -> s, 0, String.length s - 1
     | `Channel _ -> String.create io_buffer_size, max_int, 0
     in
-    { i; i_pos; i_max; src; atom = Buffer.create 256; c = ux_soi; nest = 0;
-      k = r_lexeme ret }
+    { src = (src :> src); i; i_pos; i_max; atom = Buffer.create 256; 
+      c = ux_soi; nest = 0; k = r_lexeme ret }
       
   let decode d = d.k d
 
   (* Encode *)
 
   type dst = [ `Channel of out_channel | `Buffer of Buffer.t | `Manual ]
+  type encode = [ `Await | `End | `Lexeme of lexeme]
   type encoder = 
     { dst : dst;                                      (* Output destination. *)
       mutable o : string;                           (* Current output chunk. *)
@@ -214,7 +216,7 @@ module Nb = struct
       mutable nest : int;                            (* Parenthesis nesting. *)
       mutable last_a : bool;           (* [true] if last lexeme was an atom. *)
       mutable k :                                   (* Encoder continuation. *)
-        encoder -> [ `Await | `End | `Lexeme of lexeme] -> [`Partial | `Ok ] }
+        encoder -> encode -> [`Partial | `Ok ] }
 
   let encode_dst_rem e = e.o_max - e.o_pos + 1
   let encode_dst e s j l = 
@@ -263,9 +265,10 @@ module Nb = struct
     | `Buffer _ | `Channel _ -> 
         String.create io_buffer_size, 0, io_buffer_size - 1
     in
-    { dst; o; o_pos; o_max; nest = 0; last_a = false; k = _encode ret }
+    { dst = (dst :> dst); o; o_pos; o_max; nest = 0; last_a = false; 
+      k = _encode ret }
 
-  let encode e v = e.k e v
+  let encode e v = e.k e (v :> encode)
 
   module Manual = struct
     let src = decode_src

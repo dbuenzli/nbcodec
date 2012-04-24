@@ -20,7 +20,7 @@ and a function to create them.
 
     type src = [ `Channel of in_channel | `String of string | `Manual ]
     type decoder 
-    val decoder : src -> decoder
+    val decoder : [< src] -> decoder
 
 A [`Manual] source means that the client will provide the decoder with
 chunks of bytes to decode at his own pace. The function for decoding
@@ -66,14 +66,14 @@ encoders and a function to create them.
 
     type dst = [ `Channel of out_channel | `Buffer of Buffer.t |  `Manual ]
     type encoder
-    val encoder : dst -> encoder
+    val encoder : [< dst] -> encoder
 
 A [`Manual] destination means that the client will provide to the
 decoder the chunks of bytes to encode to at his own pace. The function
 for encoding is :
 
     val encode : 
-      encoder -> [ `Await | `End | `Yield of t ] -> [ `Ok | `Partial]
+      encoder -> [< `Await | `End | `Yield of t ] -> [ `Ok | `Partial]
 
 [encode e v] is 
 
