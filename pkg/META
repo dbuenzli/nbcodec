@@ -1,0 +1,7 @@
+version = "%%VERSION%%"
+description = "non-blocking IO interface design"
+archive(byte) = "se.cma"
+archive(byte, plugin) = "se.cma"
+archive(native) = "se.cmxa"
+archive(native, plugin) = "se.cmxs"
+exists_if = "se.cma"

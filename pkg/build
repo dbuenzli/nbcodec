@@ -1,0 +1,28 @@
+#!/bin/sh
+
+# Usage: build has_native
+
+set -e 
+LOC=`dirname $0`
+
+. $LOC/pkg-builder
+
+NATIVE=$1
+
+add lib pkg/META		
+add lib src/se.mli
+add lib src/se.cmti
+add lib src/se.cmi
+add lib src/se.cmx
+add lib src/se.cma
+add lib src/se.a
+add lib src/se.cmxa
+add lib src/se.cmxs
+
+add bin setrip 
+
+add doc README.md
+
+
+build
+install nbcodec
