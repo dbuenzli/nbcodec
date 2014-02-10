@@ -1,6 +1,8 @@
 Nbcodec — non-blocking IO interface design for OCaml
 -------------------------------------------------------------------------------
 
+The rationale behind the design can be found in [`RATIONALE.md`](RATIONALE.md).
+
 In `src/se.ml` there are two implementations of a streaming codec for
 simplified ASCII s-expressions.
 
