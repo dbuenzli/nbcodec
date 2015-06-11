@@ -4,23 +4,24 @@
    %%NAME%% release %%VERSION%%
   ---------------------------------------------------------------------------*)
 
-(** Blocking and non-blocking streaming codecs for simplified s-expressions. 
+(** Blocking and non-blocking streaming codecs for simplified s-expressions.
 
     We want to encode and decode the following simple s-expression grammar
-    (expressed in the language of 
+    (expressed in the language of
     {{:http://tools.ietf.org/html/rfc5234}RFC 5234}).
 {[
   doc = *sexp
  sexp = white / atom / list
 white =  *( %x0020 / %x0009 / %x000A / %x000D )
  list =  %x0028 *sexp %x0029
- atom = *( %x0021-0027 / %x0030-007E ) ; most ASCII printable characters 
-]} 
+ atom = *( %x0021-0027 / %x0030-007E ) ; most ASCII printable characters
+]}
     This corresponds s-expressions without quoted tokens and
     comments. We assume an ASCII encoding.
 
     The module {!Se.B} is a blocking streaming codec for this grammar while
-    {!Se.Nb} is a non-blocking streaming one.
+    {!Se.Nb} is a non-blocking streaming one. {!Se.Enb} is a non-blocking
+    streaming codec written in direct style using effects.
 *)
 
 (** {1 Data model} *)
@@ -29,11 +30,11 @@ type lexeme = [ `Ls | `Le | `A of string ]
 (** The type for s-expression lexemes. Atoms, list end and list start.
 
     A well-formed sequence of lexemes belongs to the language
-    of the [doc] grammar : 
+    of the [doc] grammar :
 {[
-doc = *sexp 
-sexp = `A a / `Ls *sexp `Le 
-]} 
+doc = *sexp
+sexp = `A a / `Ls *sexp `Le
+]}
     The codecs deal only with well-formed sequences or
     errors are returned. They also assume that the atom strings
     are immutable.
@@ -52,19 +53,19 @@ module B : sig
   type decoder
   (** The type for s-expressions decoders. *)
 
-  val decoder : [< src] -> decoder 
+  val decoder : [< src] -> decoder
   (** [decoder src] is a decoder that inputs from [src]. *)
 
-  val decode : decoder -> [ `Lexeme of lexeme | `End | `Error ] 
+  val decode : decoder -> [ `Lexeme of lexeme | `End | `Error ]
   (** [decode d] is :
-      {ul 
+      {ul
       {- [`Lexeme l], if a lexeme [l] was decoded.}
       {- [`End], if the end of input was reached.}
-      {- [`Error], if an error occured. If you are interested in 
+      {- [`Error], if an error occured. If you are interested in
          a best-effort decoding you can still continue to decode
          after an error.}}
 
-      {b Note.} Repeated invocation always eventually returns [`End], even in 
+      {b Note.} Repeated invocation always eventually returns [`End], even in
       case of errors. *)
 
   (** {1 Encoding} *)
@@ -74,8 +75,8 @@ module B : sig
 
   type encoder
   (** The type for s-expressions encoders. *)
-  
-  val encoder : [< dst] -> encoder 
+
+  val encoder : [< dst] -> encoder
   (** [encoder dst] is an encoder that outputs to [dst]. *)
 
   val encode : encoder -> [< `Lexeme of lexeme | `End ] -> unit
@@ -95,8 +96,8 @@ module Nb : sig
 
   type decoder
   (** The type for s-expressions decoders. *)
-  
-  val decoder : [< src] -> decoder 
+
+  val decoder : [< src] -> decoder
   (** [decoder src] is a decoder that inputs from src. *)
 
   val decode : decoder -> [ `Lexeme of lexeme | `Await | `End | `Error ]
@@ -106,11 +107,11 @@ module Nb : sig
          for more input. The client must use {!Manual.src} to provide it.}
       {- [`Lexeme l], if a lexeme [l] was decoded.}
       {- [`End], if the end of input was reached.}
-      {- [`Error], if an error occured. If you are interested in 
+      {- [`Error], if an error occured. If you are interested in
          a best-effort decoding you can still continue to decode
          after an error.}}
 
-      {b Note.} Repeated invocation always eventually returns [`End], even in 
+      {b Note.} Repeated invocation always eventually returns [`End], even in
       case of errors. *)
 
   (** {1 Encoding} *)
@@ -118,19 +119,19 @@ module Nb : sig
   type dst = [ `Channel of out_channel | `Buffer of Buffer.t | `Manual ]
   (** The type for output destinations. *)
 
-  type encoder 
+  type encoder
   (** The type for s-expression encoders. *)
 
   val encoder : [< dst] -> encoder
   (** [encoder dst] is an encoder that outputs to [dst]. *)
-  
-  val encode : encoder -> [< `Await | `Lexeme of lexeme | `End ] -> 
+
+  val encode : encoder -> [< `Await | `Lexeme of lexeme | `End ] ->
     [ `Ok | `Partial ]
   (** [encode e v] is :
       {ul
       {- [`Partial] iff [e] has a [`Manual] destination and needs
-          more output storage. The client must use {!Manual.dst} to provide 
-          a new buffer and then call {!encode} with [`Await] until [`Ok] 
+          more output storage. The client must use {!Manual.dst} to provide
+          a new buffer and then call {!encode} with [`Await] until [`Ok]
           is returned.}
       {- [`Ok] when the encoder is ready to encode a new [`Lexeme] or [`End].}}
 
@@ -138,7 +139,7 @@ module Nb : sig
       [`Partial], continue with [`Await] until [`Ok] is
       returned at which point [Manual.dst_rem e] is guaranteed to be
       the size of the last provided buffer (i.e. nothing was written).
-      
+
       {b Raises.} [Invalid_argument] if a non well-formed sequence
       of lexemes is encoded or if a [`Lexeme] or [`End] is encoded after
       a [`Partial] encode. *)
@@ -153,24 +154,94 @@ module Nb : sig
         starting at [k] in [s]. This byte range is read by calls to {!decode}
         with [d] until [`Await] is returned. To signal the end of input
         call the function with [l = 0].
-        
+
         {b Warning.} Do not use with non-[`Manual] decoder sources. *)
 
-    val dst : encoder -> string -> int -> int -> unit 
+    val dst : encoder -> string -> int -> int -> unit
     (** [dst e s k l] provides [e] with [l] bytes to write,
         starting at [k] in [s]. This byte range is written by calls
-        to {!encoder} with [e] until [`Partial] is returned. 
-        Use {!dst_rem} to know the remaining number of non-written 
+        to {!encoder} with [e] until [`Partial] is returned.
+        Use {!dst_rem} to know the remaining number of non-written
         free bytes in [s].
-        
+
         {b Warning.} Do not use with non-[`Manual] encoder destinations.
     *)
-      
+
     val dst_rem : encoder -> int
     (** [dst_rem e] is the remaining number of non-written,
         free bytes in the last buffer provided with {!dst}. *)
   end
 end
+
+(** Non-blocking streaming codec with effects. *)
+module Enb : sig
+
+  (** {1 Decoding} *)
+
+  type src = unit -> (string * int * int) option
+  (** The type for sources.
+
+      A source is a function called by the decoder whenever it needs
+      more data. The string given by the source must remain readable
+      until the next request is made on the source by the decoder. *)
+
+  val src_of_channel : in_channel -> src
+  (** [src_of_channel ic] is a decoder source from [ic]. *)
+
+  val src_of_string : string -> src
+  (** [src_of_string s] is a decoder source from . *)
+
+  type decoder
+  (** The type for s-expressions decoders. *)
+
+  val decoder : src -> decoder
+  (** [decoder src] is a decoder that inputs from [src]. *)
+
+  val decode : decoder -> [ `Lexeme of lexeme | `End | `Error ]
+  (** [decode d] is :
+      {ul
+      {- [`Lexeme l], if a lexeme [l] was decoded.}
+      {- [`End], if the end of input was reached.}
+      {- [`Error], if an error occured. If you are interested in
+         a best-effort decoding you can still continue to decode
+         after an error.}}
+
+      {b Note.} Repeated invocation always eventually returns [`End], even in
+      case of errors. *)
+
+  (** {1 Encoding} *)
+
+  type dst = (string * int * int) option -> unit
+  (** The type for destinations.
+
+      A destination is a function called by the decoder whenever
+      it needs to output data. The bytes given to the destination
+      are only valid until the call returns. [None] means end of
+      output. *)
+
+  val dst_of_channel : out_channel -> dst
+  (** [dst_of_channel oc] is a destination from [oc]. *)
+
+  val dst_of_buffer : Buffer.t -> dst
+  (** [dst_of_buffer oc] is destination from [oc]. *)
+
+  type encoder
+  (** The type for s-expressions encoders. *)
+
+  val encoder : ?buf:string -> dst -> encoder
+  (** [encoder dst] is an encoder that outputs to [dst]. If [buf] is specified,
+      [buf] is used for the internal buffer.
+
+      @raise Invalid_argument if [buf]'s length is [0]. *)
+
+  val encode : encoder -> [< `Lexeme of lexeme | `End ] -> unit
+  (** [encode e v] encodes [v] on [e].
+
+      {b Raises.} [Invalid_argument] if a non well-formed sequence
+      of lexemes is encoded. *)
+
+end
+
 
 (*---------------------------------------------------------------------------
    Copyright (c) 2012 Daniel C. Bünzli
@@ -179,7 +250,7 @@ end
    Redistribution and use in source and binary forms, with or without
    modification, are permitted provided that the following conditions
    are met:
-     
+
    1. Redistributions of source code must retain the above copyright
       notice, this list of conditions and the following disclaimer.
 

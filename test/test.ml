@@ -4,14 +4,14 @@
    %%NAME%% release %%VERSION%%
   ---------------------------------------------------------------------------*)
 
-let lexemes_b i = 
-  let rec loop acc d = match Se.B.decode d with 
+let lexemes_b i =
+  let rec loop acc d = match Se.B.decode d with
   | `Lexeme s -> loop (s :: acc) d
   | `End -> `Lexemes (List.rev acc)
-  | `Error -> `Error 
+  | `Error -> `Error
   in
   loop [] (Se.B.decoder (`String i))
-    
+
 let lexemes_nb blen i =
   let rec loop acc d i k blen ilen = match Se.Nb.decode d with
   | `Lexeme s -> loop (s :: acc) d i k blen ilen
@@ -23,11 +23,27 @@ let lexemes_nb blen i =
   in
   loop [] (Se.Nb.decoder `Manual) i 0 blen (String.length i)
 
+let lexemes_enb blen i =
+  let rec loop acc d = match Se.Enb.decode d with
+  | `Lexeme s -> loop (s :: acc) d
+  | `End -> `Lexemes (List.rev acc)
+  | `Error -> `Error
+  in
+  let src =
+    let k = ref 0 in
+    let ilen = String.length i in
+    fun () ->
+      let blen' = if !k + blen > ilen then ilen - !k else blen in
+      k := !k + blen';
+      if blen' = 0 then None else Some (i, !k - blen', blen')
+  in
+  loop [] (Se.Enb.decoder src)
+
 let decode_test lexemes =
   let ss src l = assert (lexemes src = `Lexemes l) in
-  let err src = assert (lexemes src = `Error) in 
-  ss "  " []; 
-  ss " ( ) " [ `Ls ; `Le]; 
+  let err src = assert (lexemes src = `Error) in
+  ss "  " [];
+  ss " ( ) " [ `Ls ; `Le];
   ss "h(e(hey))" [ `A "h"; `Ls ; `A "e"; `Ls; `A "hey"; `Le; `Le ];
   ss "()(hey (ho dip))    "
     [ `Ls; `Le; `Ls; `A "hey"; `Ls; `A "ho"; `A "dip"; `Le; `Le ];
@@ -35,9 +51,9 @@ let decode_test lexemes =
 
 let () =
   if !Sys.interactive then () else
-  begin 
+  begin
     print_endline "Testing blocking decoder.";
-    decode_test lexemes_b; 
+    decode_test lexemes_b;
     print_endline "Testing non-blocking decoder.";
     decode_test (lexemes_nb 1);
     print_endline "Testing non-blocking decoder.";
@@ -46,6 +62,14 @@ let () =
     decode_test (lexemes_nb 3);
     print_endline "Testing non-blocking decoder.";
     decode_test (lexemes_nb 20);
+    print_endline "Testing effect non-blocking decoder.";
+    decode_test (lexemes_enb 1);
+    print_endline "Testing effect non-blocking decoder.";
+    decode_test (lexemes_enb 2);
+    print_endline "Testing effect non-blocking decoder.";
+    decode_test (lexemes_enb 3);
+    print_endline "Testing effect non-blocking decoder.";
+    decode_test (lexemes_enb 20);
   end
 
 (*---------------------------------------------------------------------------
@@ -55,7 +79,7 @@ let () =
    Redistribution and use in source and binary forms, with or without
    modification, are permitted provided that the following conditions
    are met:
-     
+
    1. Redistributions of source code must retain the above copyright
       notice, this list of conditions and the following disclaimer.
 
@@ -80,5 +104,3 @@ let () =
    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   ---------------------------------------------------------------------------*)
-
-
