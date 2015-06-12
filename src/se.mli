@@ -223,7 +223,7 @@ module Enb : sig
   (** [dst_of_channel oc] is a destination from [oc]. *)
 
   val dst_of_buffer : Buffer.t -> dst
-  (** [dst_of_buffer oc] is destination from [oc]. *)
+  (** [dst_of_buffer buf] is destination from [buf]. *)
 
   type encoder
   (** The type for s-expressions encoders. *)
