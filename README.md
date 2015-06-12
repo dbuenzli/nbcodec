@@ -8,6 +8,9 @@ simplified ASCII s-expressions.
 
 * `Se.B` implements a blocking codec.
 * `Se.Nb` implements a non-blocking codec.
+* `Se.Enb` implements a codec in direct style with an API that could
+  be non-blocking assuming algebraic effects are part of the language.
+
 
 The api documentation can be generated with 
 
