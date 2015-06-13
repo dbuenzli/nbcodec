@@ -173,7 +173,7 @@ module Nb : sig
   end
 end
 
-(** Non-blocking streaming codec with effects. *)
+(** Non-blocking streaming codec with support for effects. *)
 module Enb : sig
 
   (** {1 Decoding} *)
@@ -182,8 +182,10 @@ module Enb : sig
   (** The type for sources.
 
       A source is a function called by the decoder whenever it needs
-      more data. The string given by the source must remain readable
-      until the next request is made on the source by the decoder. *)
+      input data. The returned byte range must be immutable until
+      the next request is made on the source by the decoder. The
+      decoder guarantees that the bytes will not be mutated. A source
+      returns [None] on end of input. *)
 
   val src_of_channel : in_channel -> src
   (** [src_of_channel ic] is a decoder source from [ic]. *)
@@ -214,10 +216,11 @@ module Enb : sig
   type dst = (bytes * int * int) option -> unit
   (** The type for destinations.
 
-      A destination is a function called by the decoder whenever
-      it needs to output data. The bytes given to the destination
-      are only valid until the call returns. [None] means end of
-      output. *)
+      A destination is a function called by the decoder whenever it
+      needs to output data. The byte range given to the destination is
+      only valid until the destination function call returns. The
+      destination must guarantee that it will not mutate the
+      bytes. [None] is given to a destination to mean end of output. *)
 
   val dst_of_channel : out_channel -> dst
   (** [dst_of_channel oc] is a destination from [oc]. *)
@@ -239,9 +242,7 @@ module Enb : sig
 
       {b Raises.} [Invalid_argument] if a non well-formed sequence
       of lexemes is encoded. *)
-
 end
-
 
 (*---------------------------------------------------------------------------
    Copyright (c) 2012 Daniel C. Bünzli

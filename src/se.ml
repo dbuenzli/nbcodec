@@ -405,8 +405,6 @@ module Enb = struct
           if e.last_a then writec e ' ';
           e.last_a <- true; writes e a 0 al
         end
-
-
 end
 
 
