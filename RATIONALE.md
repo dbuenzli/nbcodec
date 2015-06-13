@@ -3,12 +3,12 @@ Non-blocking IO interface design for OCaml
 
 The design should have the following properties:
 
-1. Unified interface for blocking and non-blocking mode. 
+1. Unified interface for blocking and non-blocking mode.
 2. The existence of the non-blocking mode should not significantly
    impact blocking mode users.
-3. Input possible from `in_channel`, `string`, refillable fixed-size `string` 
-   buffer (non-blocking mode). 
-4. Output possible to `out_channel`, `Buffer.t`, flushable fixed-size `string`
+3. Input possible from `in_channel`, `bytes`, refillable fixed-size `bytes`
+   buffer (non-blocking mode).
+4. Output possible to `out_channel`, `Buffer.t`, flushable fixed-size `bytes`
    buffer (non-blocking mode).
 5. No third-party IO libraries/paradigms so that the module can adapt
    to the one the user chooses.
@@ -21,8 +21,8 @@ that.
 For input (decoding) we begin with a type for input sources, decoders
 and a function to create them.
 
-    type src = [ `Channel of in_channel | `String of string | `Manual ]
-    type decoder 
+    type src = [ `Channel of in_channel | `Bytes of bytes | `Manual ]
+    type decoder
     val decoder : [< src] -> decoder
 
 A `` `Manual`` source means that the client will provide the decoder with
@@ -31,20 +31,20 @@ is :
 
     val decode : decoder -> [ `Await | `End | `Error of e | `Yield of t ]
 
-`decode d` is : 
+`decode d` is :
 
 - `` `Await`` iff `d` has a `` `Manual`` input source and awaits for
   more input. The client must use `Manual.src` (see below) to provide it.
-- `` `Yield v``, if a value `v` of type `t` was decoded. 
+- `` `Yield v``, if a value `v` of type `t` was decoded.
 - `` `End``, if the end of input was reached.
 - `` `Error e``, if an error `e` occured. If you are interested in a
   best-effort decoding, you can still continue to decode after
   the error.
 
 For `` `Manual`` sources the function `Manual.src` is used to provide
-the byte chunks to read from : 
+the byte chunks to read from :
 
-    val Manual.src : decoder -> string -> int -> int -> unit
+    val Manual.src : decoder -> bytes -> int -> int -> unit
 
 `Manual.src d s k l` provides `d` with `l` bytes to read, starting at
 `k` in `s`. This byte range is read by calls to `decode` with `d`
@@ -75,28 +75,28 @@ A `` `Manual`` destination means that the client will provide to the
 decoder the chunks of bytes to encode to at his own pace. The function
 for encoding is :
 
-    val encode : 
+    val encode :
       encoder -> [< `Await | `End | `Yield of t ] -> [ `Ok | `Partial]
 
-`encode e v` is 
+`encode e v` is
 
 - `` `Partial`` iff `e` has a `` `Manual`` destination and needs more output
-  storage. The client must use `Manual.dst` (see below) to provide it and 
+  storage. The client must use `Manual.dst` (see below) to provide it and
   then call ``encode e `Await`` until `` `Ok`` is returned.
 - `` `Ok`` when the encoder is ready to encode a new `` `Yield`` or `` `End``.
 
-Raises `Invalid_argument` if a `` `Yield`` or `` `End`` is encoded after a 
-`` `Partial`` encode (this is done to prevent the encoder from having 
-to bufferize `` `Yield``s).  
+Raises `Invalid_argument` if a `` `Yield`` or `` `End`` is encoded after a
+`` `Partial`` encode (this is done to prevent the encoder from having
+to bufferize `` `Yield``s).
 
 For `` `Manual`` destinations the function `Manual.dst` is used to provide
-the byte chunks to write to : 
+the byte chunks to write to :
 
-    val Manual.dst : encoder -> string -> int -> int -> unit
+    val Manual.dst : encoder -> bytes -> int -> int -> unit
 
 `Manual.dst e s k l` provides `e` with `l` bytes to write, starting at
 `k` in `s`. This byte range is written by calls to `encode` with `e`
-until `` `Partial`` is returned. To know the remaining number of 
+until `` `Partial`` is returned. To know the remaining number of
 non-written free bytes in `s` the function `Manual.dst_rem` can be
 used:
 

@@ -10,7 +10,7 @@ let lexemes_b i =
   | `End -> `Lexemes (List.rev acc)
   | `Error -> `Error
   in
-  loop [] (Se.B.decoder (`String i))
+  loop [] (Se.B.decoder (`Bytes i))
 
 let lexemes_nb blen i =
   let rec loop acc d i k blen ilen = match Se.Nb.decode d with
@@ -21,7 +21,7 @@ let lexemes_nb blen i =
       let blen' = if k + blen > ilen then ilen - k else blen in
       Se.Nb.Manual.src d i k blen'; loop acc d i (k + blen') blen' ilen
   in
-  loop [] (Se.Nb.decoder `Manual) i 0 blen (String.length i)
+  loop [] (Se.Nb.decoder `Manual) i 0 blen (Bytes.length i)
 
 let lexemes_enb blen i =
   let rec loop acc d = match Se.Enb.decode d with
@@ -31,7 +31,7 @@ let lexemes_enb blen i =
   in
   let src =
     let k = ref 0 in
-    let ilen = String.length i in
+    let ilen = Bytes.length i in
     fun () ->
       let blen' = if !k + blen > ilen then ilen - !k else blen in
       k := !k + blen';
@@ -40,8 +40,8 @@ let lexemes_enb blen i =
   loop [] (Se.Enb.decoder src)
 
 let decode_test lexemes =
-  let ss src l = assert (lexemes src = `Lexemes l) in
-  let err src = assert (lexemes src = `Error) in
+  let ss src l = assert (lexemes (Bytes.of_string src) = `Lexemes l) in
+  let err src = assert (lexemes (Bytes.of_string src) = `Error) in
   ss "  " [];
   ss " ( ) " [ `Ls ; `Le];
   ss "h(e(hey))" [ `A "h"; `Ls ; `A "e"; `Ls; `A "hey"; `Le; `Le ];

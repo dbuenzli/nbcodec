@@ -1,4 +1,4 @@
-<**/*.{ml,mli}> : annot, debug
+<**/*.{ml,mli}> : annot, debug, safe_string
 <src> : include
 <test> : include
 <test/setrip.{byte,native}> : use_unix

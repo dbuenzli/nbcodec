@@ -25,10 +25,10 @@ module B = struct
 
   (* Decoding *)
 
-  type src = [ `Channel of in_channel | `String of string ]
+  type src = [ `Channel of in_channel | `Bytes of bytes ]
   type decoder =
-    { src : src;                                           (* Input source. *)
-      mutable i : string;                            (* Current input chunk. *)
+    { src : src;                                            (* Input source. *)
+      mutable i : bytes;                             (* Current input chunk. *)
       mutable i_pos : int;                   (* Next input position to read. *)
       mutable i_max : int;                (* Maximal input position to read. *)
       atom : Buffer.t;                                  (* Buffer for atoms. *)
@@ -37,23 +37,25 @@ module B = struct
 
   let decoder src =
     let i, i_pos, i_max = match src with
-    | `String s -> s, 0, String.length s - 1
-    | `Channel _ -> String.create io_buffer_size, max_int, 0
+    | `Bytes b -> b, 0, Bytes.length b - 1
+    | `Channel _ -> Bytes.create io_buffer_size, max_int, 0
     in
     { src = (src :> src); i; i_pos; i_max; atom = Buffer.create 256;
       c = ux_soi; nest = 0;}
 
-  let eoi d = d.i <- ""; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+  let eoi d =
+    d.i <- Bytes.empty; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+
   let refill d = match d.src with
-  | `String _ -> eoi d
+  | `Bytes _ -> eoi d
   | `Channel ic ->
-      let rc = input ic d.i 0 (String.length d.i) in
+      let rc = input ic d.i 0 (Bytes.length d.i) in
       if rc = 0 then (eoi d) else (d.i_pos <- 0; d.i_max <- rc - 1;)
 
   let rec readc d =
     if d.i_pos > d.i_max then (if d.c = ux_eoi then () else (refill d; readc d))
     else begin
-      d.c <- Char.code (String.unsafe_get d.i d.i_pos);
+      d.c <- Char.code (Bytes.unsafe_get d.i d.i_pos);
       d.i_pos <- d.i_pos + 1;
     end
 
@@ -86,7 +88,7 @@ module B = struct
 
   type encoder =
     { dst : dst;                                      (* Output destination. *)
-      mutable o : string;                           (* Current output chunk. *)
+      mutable o : bytes;                            (* Current output chunk. *)
       mutable o_pos : int;                 (* Next output position to write. *)
       mutable o_max : int;              (* Maximal output position to write. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
@@ -94,17 +96,17 @@ module B = struct
 
   let encoder dst =
     let o, o_pos, o_max = match dst with `Buffer _ | `Channel _ ->
-      String.create io_buffer_size, 0, io_buffer_size - 1
+      Bytes.create io_buffer_size, 0, io_buffer_size - 1
     in
     { dst = (dst :> dst); o; o_pos; o_max; nest = 0; last_a = false }
 
   let flush e = match e.dst with
-  | `Buffer b -> Buffer.add_substring b e.o 0 e.o_pos; e.o_pos <- 0
+  | `Buffer b -> Buffer.add_subbytes b e.o 0 e.o_pos; e.o_pos <- 0
   | `Channel oc -> output oc e.o 0 e.o_pos; e.o_pos <- 0
 
   let rec writec e c =
     if e.o_pos > e.o_max then (flush e; writec e c) else
-    (String.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1)
+    (Bytes.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1)
 
   let rec writes e s j l =
     let rem = e.o_max - e.o_pos + 1 in
@@ -135,10 +137,10 @@ module Nb = struct
 
   (* Decoding *)
 
-  type src = [ `Channel of Pervasives.in_channel | `String of string | `Manual ]
+  type src = [ `Channel of Pervasives.in_channel | `Bytes of bytes | `Manual ]
   type decoder =
     { src : src;                                            (* Input source. *)
-      mutable i : string;                            (* Current input chunk. *)
+      mutable i : bytes;                             (* Current input chunk. *)
       mutable i_pos : int;                        (* Input current position. *)
       mutable i_max : int;                        (* Input maximal position. *)
       atom : Buffer.t;                                  (* Buffer for atoms. *)
@@ -147,17 +149,19 @@ module Nb = struct
       mutable k :                                   (* Decoder continuation. *)
         decoder -> [ `Lexeme of lexeme | `Await | `End | `Error ]; }
 
-  let eoi d = d.i <- ""; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
-  let decode_src d s j l =
-    if (j < 0 || l < 0 || j + l > String.length s) then invalid_arg "bounds";
+  let eoi d =
+    d.i <- Bytes.empty; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+
+  let decode_src d b j l =
+    if (j < 0 || l < 0 || j + l > Bytes.length b) then invalid_arg "bounds";
     if (l = 0) then eoi d else
-    (d.i <- s; d.i_pos <- j; d.i_max <- j + l - 1;)
+    (d.i <- b; d.i_pos <- j; d.i_max <- j + l - 1;)
 
   let refill k d = match d.src with
   | `Manual -> d.k <- k; `Await
-  | `String _ -> eoi d; k d
+  | `Bytes _ -> eoi d; k d
   | `Channel ic ->
-      let rc = input ic d.i 0 (String.length d.i) in
+      let rc = input ic d.i 0 (Bytes.length d.i) in
       decode_src d d.i 0 rc;
       k d
 
@@ -165,7 +169,7 @@ module Nb = struct
     if d.i_pos > d.i_max then
       (if d.c = ux_eoi then k d else refill (readc k) d)
     else begin
-      d.c <- Char.code (String.unsafe_get d.i d.i_pos);
+      d.c <- Char.code (Bytes.unsafe_get d.i d.i_pos);
       d.i_pos <- d.i_pos + 1;
       k d
     end
@@ -195,9 +199,9 @@ module Nb = struct
   let rec ret d result = d.k <- r_lexeme ret; result
   let decoder src =
     let i, i_pos, i_max = match src with
-    | `Manual -> "", max_int, 0
-    | `String s -> s, 0, String.length s - 1
-    | `Channel _ -> String.create io_buffer_size, max_int, 0
+    | `Manual -> Bytes.empty, max_int, 0
+    | `Bytes b -> b, 0, Bytes.length b - 1
+    | `Channel _ -> Bytes.create io_buffer_size, max_int, 0
     in
     { src = (src :> src); i; i_pos; i_max; atom = Buffer.create 256;
       c = ux_soi; nest = 0; k = r_lexeme ret }
@@ -210,7 +214,7 @@ module Nb = struct
   type encode = [ `Await | `End | `Lexeme of lexeme]
   type encoder =
     { dst : dst;                                      (* Output destination. *)
-      mutable o : string;                           (* Current output chunk. *)
+      mutable o : bytes;                            (* Current output chunk. *)
       mutable o_pos : int;                 (* Next output position to write. *)
       mutable o_max : int;              (* Maximal output position to write. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
@@ -219,21 +223,21 @@ module Nb = struct
         encoder -> encode -> [`Partial | `Ok ] }
 
   let encode_dst_rem e = e.o_max - e.o_pos + 1
-  let encode_dst e s j l =
-    if (j < 0 || l < 0 || j + l > String.length s) then invalid_arg "bounds";
-    e.o <- s; e.o_pos <- j; e.o_max <- j + l - 1
+  let encode_dst e b j l =
+    if (j < 0 || l < 0 || j + l > Bytes.length b) then invalid_arg "bounds";
+    e.o <- b; e.o_pos <- j; e.o_max <- j + l - 1
 
   let partial k e = function `Await -> k e
   | `Lexeme _ | `End -> invalid_arg "cannot encode now, use `Await first"
 
   let flush k e = match e.dst with
   | `Manual -> e.k <- partial k; `Partial
-  | `Buffer b -> Buffer.add_substring b e.o 0 e.o_pos; e.o_pos <- 0; k e
+  | `Buffer b -> Buffer.add_subbytes b e.o 0 e.o_pos; e.o_pos <- 0; k e
   | `Channel oc -> output oc e.o 0 e.o_pos; e.o_pos <- 0; k e
 
   let rec writec c k e =
     if e.o_pos > e.o_max then flush (writec c k) e else
-    (String.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1; k e)
+    (Bytes.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1; k e)
 
   let rec writes s j l k e =
     let rem = encode_dst_rem e in
@@ -261,9 +265,9 @@ module Nb = struct
   let rec ret e = e.k <- _encode ret; `Ok
   let encoder dst =
     let o, o_pos, o_max = match dst with
-    | `Manual -> "", 1, 0
+    | `Manual -> Bytes.empty, 1, 0
     | `Buffer _ | `Channel _ ->
-        String.create io_buffer_size, 0, io_buffer_size - 1
+        Bytes.create io_buffer_size, 0, io_buffer_size - 1
     in
     { dst = (dst :> dst); o; o_pos; o_max; nest = 0; last_a = false;
       k = _encode ret }
@@ -281,21 +285,21 @@ module Enb = struct
 
   (* Decoding *)
 
-  type src = unit -> (string * int * int) option
+  type src = unit -> (bytes * int * int) option
 
   let src_of_channel ic =
-    let buf = String.create io_buffer_size in
+    let buf = Bytes.create io_buffer_size in
     fun () ->
-      let rc = input ic buf 0 (String.length buf) in
+      let rc = input ic buf 0 (Bytes.length buf) in
       if rc = 0 then None else Some (buf, 0, rc)
 
-  let src_of_string s =
+  let src_of_bytes b =
     let eoi = ref false in
-    fun () -> if !eoi then None else (eoi := true; Some (s, 0, String.length s))
+    fun () -> if !eoi then None else (eoi := true; Some (b, 0, Bytes.length b))
 
   type decoder =
     { src : src;                                            (* Input source. *)
-      mutable i : string;                            (* Current input chunk. *)
+      mutable i : bytes;                             (* Current input chunk. *)
       mutable i_pos : int;                   (* Next input position to read. *)
       mutable i_max : int;                (* Maximal input position to read. *)
       atom : Buffer.t;                                  (* Buffer for atoms. *)
@@ -303,11 +307,12 @@ module Enb = struct
       mutable nest : int; }                          (* Parenthesis nesting. *)
 
   let decoder src =
-    let i, i_pos, i_max = "", max_int, 0 in
-    { src; i; i_pos; i_max; atom = Buffer.create 256;
-      c = ux_soi; nest = 0;}
+    { src; i = Bytes.empty; i_pos = max_int; i_max = 0;
+      atom = Buffer.create 256; c = ux_soi; nest = 0;}
 
-  let eoi d = d.i <- ""; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+  let eoi d =
+    d.i <- Bytes.empty; d.i_pos <- max_int; d.i_max <- 0; d.c <- ux_eoi
+
   let refill d = match d.src () with
   | None -> eoi d
   | Some (s, pos, len) -> d.i <- s; d.i_pos <- pos; d.i_max <- pos + len - 1
@@ -315,7 +320,7 @@ module Enb = struct
   let rec readc d =
     if d.i_pos > d.i_max then (if d.c = ux_eoi then () else (refill d; readc d))
     else begin
-      d.c <- Char.code (String.unsafe_get d.i d.i_pos);
+      d.c <- Char.code (Bytes.unsafe_get d.i d.i_pos);
       d.i_pos <- d.i_pos + 1;
     end
 
@@ -344,11 +349,11 @@ module Enb = struct
 
   (* Encoding *)
 
-  type dst = (string * int * int) option -> unit
+  type dst = (bytes * int * int) option -> unit
 
   type encoder =
     { dst : dst;                                      (* Output destination. *)
-      mutable o : string;                           (* Current output chunk. *)
+      mutable o : bytes;                            (* Current output chunk. *)
       mutable o_pos : int;                 (* Next output position to write. *)
       mutable o_max : int;              (* Maximal output position to write. *)
       mutable nest : int;                            (* Parenthesis nesting. *)
@@ -359,11 +364,11 @@ module Enb = struct
   | None -> ()
 
   let dst_of_buffer buf = function
-  | Some (o, pos, len) -> Buffer.add_substring buf o pos len
+  | Some (o, pos, len) -> Buffer.add_subbytes buf o pos len
   | None -> ()
 
-  let encoder ?(buf = String.create io_buffer_size) dst =
-    let o_max = String.length buf in
+  let encoder ?(buf = Bytes.create io_buffer_size) dst =
+    let o_max = Bytes.length buf in
     if o_max = 0 then invalid_arg "buf's length is empty" else
     { dst; o = buf; o_pos = 0; o_max = -1; nest = 0; last_a = false }
 
@@ -375,7 +380,7 @@ module Enb = struct
 
   let rec writec e c =
     if e.o_pos > e.o_max then (flush e ~stop:false; writec e c) else
-    (String.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1)
+    (Bytes.unsafe_set e.o e.o_pos c; e.o_pos <- e.o_pos + 1)
 
   let rec writes e s j l =
     let rem = e.o_max - e.o_pos + 1 in

@@ -19,31 +19,31 @@ let rec unix_really_write fd s k l =
   let wc = unix_write fd s k l in
   if wc < l then unix_really_write fd s (k + wc) (l - wc) else ()
 
-let string_of_channel use_unix ic =
+let bytes_of_channel use_unix ic =
   let b = Buffer.create unix_buffer_size in
   let input, s =
     if use_unix
-    then unix_read (Unix.descr_of_in_channel ic), String.create unix_buffer_size
-    else input ic, String.create io_buffer_size
+    then unix_read (Unix.descr_of_in_channel ic), Bytes.create unix_buffer_size
+    else input ic, Bytes.create io_buffer_size
   in
   let rec loop b input s =
-    let rc = input s 0 (String.length s) in
-    if rc = 0 then Buffer.contents b else
-    (Buffer.add_substring b s 0 rc; loop b input s)
+    let rc = input s 0 (Bytes.length s) in
+    if rc = 0 then Buffer.to_bytes b else
+    (Buffer.add_subbytes b s 0 rc; loop b input s)
   in
   loop b input s
 
-let string_to_channel use_unix oc s =
+let bytes_to_channel use_unix oc b =
   if use_unix
-  then unix_really_write (Unix.descr_of_out_channel oc) s 0 (String.length s)
-  else output_string oc s
+  then unix_really_write (Unix.descr_of_out_channel oc) b 0 (Bytes.length b)
+  else output_bytes oc b
 
 let dst_for sout = if sout then `Buffer (Buffer.create 255) else `Channel stdout
 let src_for use_unix sin =
-  if sin then `String (string_of_channel use_unix stdin) else `Channel stdin
+  if sin then `Bytes (bytes_of_channel use_unix stdin) else `Channel stdin
 
 let enb_src_for = function
-| `String s -> Se.Enb.src_of_string s
+| `Bytes b -> Se.Enb.src_of_bytes b
 | `Channel ic -> Se.Enb.src_of_channel ic
 
 let enb_dst_for = function
@@ -75,10 +75,10 @@ let decode_nb_unix usize fd =
   | `End -> `Ok
   | `Error -> `Error
   | `Await ->
-      let rc = unix_read fd buf 0 (String.length buf) in
+      let rc = unix_read fd buf 0 (Bytes.length buf) in
       Se.Nb.Manual.src d buf 0 rc; loop d fd buf
   in
-  loop (Se.Nb.decoder `Manual) fd (String.create usize)
+  loop (Se.Nb.decoder `Manual) fd (Bytes.create usize)
 
 let decode_enb src =
   let rec loop d = match Se.Enb.decode d with
@@ -95,9 +95,9 @@ let decode_enb_unix usize fd =
   | `Error -> `Error
   in
   let src =
-    let db = String.create usize in
+    let db = Bytes.create usize in
     fun () ->
-      let rc = unix_read fd db 0 (String.length db) in
+      let rc = unix_read fd db 0 (Bytes.length db) in
       if rc = 0 then None else Some (db, 0, rc)
   in
   loop (Se.Enb.decoder src)
@@ -117,9 +117,9 @@ let decode mode sin use_unix usize =
 
 let r_atom encode max =
   let r_char () = Char.chr (0x0061 + Random.int (26)) in (* random in [a-z]. *)
-  let s = String.create (1 + Random.int max) in
-  for i = 0 to String.length s - 1 do s.[i] <- r_char () done;
-  encode (`Lexeme (`A s))
+  let b = Bytes.create (1 + Random.int max) in
+  for i = 0 to Bytes.length b - 1 do Bytes.set b i (r_char ()) done;
+  encode (`Lexeme (`A (Bytes.unsafe_to_string b)))
 
 let rec r_list encode maxd maxl maxa =                (* not t.r., too lazy. *)
   let maxd = Random.int (maxd + 1) in
@@ -144,18 +144,18 @@ let encode_enb dst = Se.Enb.encode (Se.Enb.encoder (enb_dst_for dst))
 
 let rec encode_unix fd e eb v = match Se.Nb.encode e v with `Ok -> ()
 | `Partial ->
-    unix_really_write fd eb 0 (String.length eb - Se.Nb.Manual.dst_rem e);
-    Se.Nb.Manual.dst e eb 0 (String.length eb);
+    unix_really_write fd eb 0 (Bytes.length eb - Se.Nb.Manual.dst_rem e);
+    Se.Nb.Manual.dst e eb 0 (Bytes.length eb);
     encode_unix fd e eb `Await
 
 let encode_nb_unix usize fd =
   let e = Se.Nb.encoder `Manual in
-  let eb = String.create usize in
-  Se.Nb.Manual.dst e eb 0 (String.length eb);
+  let eb = Bytes.create usize in
+  Se.Nb.Manual.dst e eb 0 (Bytes.length eb);
   encode_unix fd e eb
 
 let encode_enb_unix usize fd =
-  let buf = String.create usize in
+  let buf = Bytes.create usize in
   let dst = function
   | Some (o, pos, len) -> unix_really_write fd o pos len
   | None -> ()
@@ -177,7 +177,7 @@ let r_encode mode sout use_unix usize rseed maxd maxl maxa =
   in
   Random.init rseed; r_doc encode maxd maxl maxa;
   match dst with `Channel _ -> `Ok
-  | `Buffer b -> string_to_channel use_unix stdout (Buffer.contents b); `Ok
+  | `Buffer b -> bytes_to_channel use_unix stdout (Buffer.to_bytes b); `Ok
 
 (* Trip *)
 
@@ -212,12 +212,12 @@ let trip_nb_unix usize fdi fdo =
   | `End -> encode_unix fdo e eb `End; `Ok
   | `Error -> `Error
   | `Await ->
-      let rc = unix_read fdi db 0 (String.length db) in
+      let rc = unix_read fdi db 0 (Bytes.length db) in
       Se.Nb.Manual.src d db 0 rc; loop fdi fdo d db e eb
   in
-  let d, db = Se.Nb.decoder `Manual, String.create usize in
-  let e, eb = Se.Nb.encoder `Manual, String.create usize in
-  Se.Nb.Manual.dst e eb 0 (String.length eb);
+  let d, db = Se.Nb.decoder `Manual, Bytes.create usize in
+  let e, eb = Se.Nb.encoder `Manual, Bytes.create usize in
+  Se.Nb.Manual.dst e eb 0 (Bytes.length eb);
   loop fdi fdo d db e eb
 
 let trip_enb_unix usize fdi fdo =
@@ -226,17 +226,17 @@ let trip_enb_unix usize fdi fdo =
   | `End -> Se.Enb.encode e `End; `Ok
   | `Error -> `Error
   in
-  let db = String.create usize in
   let src =
+    let db = Bytes.create usize in
     fun () ->
-      let rc = unix_read fdi db 0 (String.length db) in
+      let rc = unix_read fdi db 0 (Bytes.length db) in
       if rc = 0 then None else Some (db, 0, rc)
   in
-  let eb = String.create usize in
   let dst = function
   | None -> ()
   | Some (o, pos, len) -> unix_really_write fdo o pos len
   in
+  let eb = Bytes.create usize in
   loop (Se.Enb.decoder src) (Se.Enb.encoder ~buf:eb dst)
 
 let trip mode sin sout use_unix usize =
@@ -253,7 +253,7 @@ let trip mode sin sout use_unix usize =
   in
   match dst with
   | `Channel _ -> r
-  | `Buffer b -> string_to_channel use_unix stdout (Buffer.contents b); r
+  | `Buffer b -> bytes_to_channel use_unix stdout (Buffer.to_bytes b); r
 
 let main () =
   let str = Printf.sprintf in

@@ -47,7 +47,7 @@ module B : sig
 
   (** {1 Decoding} *)
 
-  type src = [ `Channel of in_channel | `String of string ]
+  type src = [ `Channel of in_channel | `Bytes of bytes ]
   (** The type for input sources. *)
 
   type decoder
@@ -91,7 +91,7 @@ module Nb : sig
 
   (** {1 Decoding} *)
 
-  type src = [ `Channel of in_channel | `String of string | `Manual ]
+  type src = [ `Channel of in_channel | `Bytes of bytes | `Manual ]
   (** The type for input sources. *)
 
   type decoder
@@ -149,20 +149,20 @@ module Nb : sig
   (** Manual sources and destinations. *)
   module Manual : sig
 
-    val src : decoder -> string -> int -> int -> unit
-    (** [src d s k l] provides [d] with [l] bytes to read,
-        starting at [k] in [s]. This byte range is read by calls to {!decode}
+    val src : decoder -> bytes -> int -> int -> unit
+    (** [src d b k l] provides [d] with [l] bytes to read,
+        starting at [k] in [b]. This byte range is read by calls to {!decode}
         with [d] until [`Await] is returned. To signal the end of input
         call the function with [l = 0].
 
         {b Warning.} Do not use with non-[`Manual] decoder sources. *)
 
-    val dst : encoder -> string -> int -> int -> unit
-    (** [dst e s k l] provides [e] with [l] bytes to write,
-        starting at [k] in [s]. This byte range is written by calls
+    val dst : encoder -> bytes -> int -> int -> unit
+    (** [dst e b k l] provides [e] with [l] bytes to write,
+        starting at [k] in [b]. This byte range is written by calls
         to {!encoder} with [e] until [`Partial] is returned.
         Use {!dst_rem} to know the remaining number of non-written
-        free bytes in [s].
+        free bytes in [b].
 
         {b Warning.} Do not use with non-[`Manual] encoder destinations.
     *)
@@ -178,7 +178,7 @@ module Enb : sig
 
   (** {1 Decoding} *)
 
-  type src = unit -> (string * int * int) option
+  type src = unit -> (bytes * int * int) option
   (** The type for sources.
 
       A source is a function called by the decoder whenever it needs
@@ -188,8 +188,8 @@ module Enb : sig
   val src_of_channel : in_channel -> src
   (** [src_of_channel ic] is a decoder source from [ic]. *)
 
-  val src_of_string : string -> src
-  (** [src_of_string s] is a decoder source from . *)
+  val src_of_bytes : bytes -> src
+  (** [src_of_bytes b] is a decoder source from [bytes]. *)
 
   type decoder
   (** The type for s-expressions decoders. *)
@@ -211,7 +211,7 @@ module Enb : sig
 
   (** {1 Encoding} *)
 
-  type dst = (string * int * int) option -> unit
+  type dst = (bytes * int * int) option -> unit
   (** The type for destinations.
 
       A destination is a function called by the decoder whenever
@@ -228,7 +228,7 @@ module Enb : sig
   type encoder
   (** The type for s-expressions encoders. *)
 
-  val encoder : ?buf:string -> dst -> encoder
+  val encoder : ?buf:bytes -> dst -> encoder
   (** [encoder dst] is an encoder that outputs to [dst]. If [buf] is specified,
       [buf] is used for the internal buffer.
 
