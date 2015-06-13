@@ -6,8 +6,8 @@
 
 (* IO tools  *)
 
-let io_buffer_size = 4096                           (* IO_BUFFER_SIZE 3.12.1 *)
-let unix_buffer_size = 16384                      (* UNIX_BUFFER_SIZE 3.12.1 *)
+let io_buffer_size = 65535                          (* IO_BUFFER_SIZE 4.00.1 *)
+let unix_buffer_size = 65535                      (* UNIX_BUFFER_SIZE 4.00.1 *)
 
 let rec unix_read fd s k l = try Unix.read fd s k l with
 | Unix.Unix_error (Unix.EINTR, _, _) -> unix_read fd s k l

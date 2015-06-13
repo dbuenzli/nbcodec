@@ -6,7 +6,7 @@
 
 (* N.B. error reporting is terrible, it's not our focus here. *)
 
-let io_buffer_size = 4096                           (* IO_BUFFER_SIZE 3.12.1 *)
+let io_buffer_size = 65535                          (* IO_BUFFER_SIZE 4.00.0 *)
 
 type lexeme = [ `Ls | `Le | `A of string ]
 
