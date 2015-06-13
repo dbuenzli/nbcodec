@@ -294,8 +294,10 @@ module Enb = struct
       if rc = 0 then None else Some (buf, 0, rc)
 
   let src_of_bytes b =
+    let len = Bytes.length b in
+    if len = 0 then fun () -> None else
     let eoi = ref false in
-    fun () -> if !eoi then None else (eoi := true; Some (b, 0, Bytes.length b))
+    fun () -> if !eoi then None else (eoi := true; Some (b, 0, len))
 
   type decoder =
     { src : src;                                            (* Input source. *)
