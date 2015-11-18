@@ -370,9 +370,9 @@ module Enb = struct
   | None -> ()
 
   let encoder ?(buf = Bytes.create io_buffer_size) dst =
-    let o_max = Bytes.length buf in
+    let o_max = Bytes.length buf - 1 in
     if o_max = 0 then invalid_arg "buf's length is empty" else
-    { dst; o = buf; o_pos = 0; o_max = -1; nest = 0; last_a = false }
+    { dst; o = buf; o_pos = 0; o_max; nest = 0; last_a = false }
 
   let flush e ~stop =
     if stop
